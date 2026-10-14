@@ -1,0 +1,126 @@
+{
+  "success": true,
+  "data": {
+    "cpu": {
+      "15min_load": 110,
+      "1min_load": 118,
+      "5min_load": 118,
+      "device": "System",
+      "other_load": 4,
+      "system_load": 2,
+      "user_load": 8
+    },
+    "disk": {
+      "disk": [
+        {
+          "device": "sda",
+          "display_name": "Drive 1",
+          "read_access": 6,
+          "read_byte": 87771,
+          "type": "internal",
+          "utilization": 5,
+          "write_access": 30,
+          "write_byte": 355766
+        },
+        {
+          "device": "sdb",
+          "display_name": "Drive 2",
+          "read_access": 3,
+          "read_byte": 57344,
+          "type": "internal",
+          "utilization": 5,
+          "write_access": 27,
+          "write_byte": 325924
+        },
+        {
+          "device": "sdc",
+          "display_name": "Drive 3",
+          "read_access": 8,
+          "read_byte": 127561,
+          "type": "internal",
+          "utilization": 11,
+          "write_access": 29,
+          "write_byte": 336457
+        },
+        {
+          "device": "sdd",
+          "display_name": "Drive 4",
+          "read_access": 7,
+          "read_byte": 133997,
+          "type": "internal",
+          "utilization": 7,
+          "write_access": 29,
+          "write_byte": 358107
+        }
+      ],
+      "total": {
+        "device": "total",
+        "read_access": 24,
+        "read_byte": 406673,
+        "utilization": 7,
+        "write_access": 115,
+        "write_byte": 1376254
+      }
+    },
+    "lun": [],
+    "memory": {
+      "avail_real": 1616840,
+      "avail_swap": 9618680,
+      "buffer": 18364,
+      "cached": 6998416,
+      "device": "Memory",
+      "memory_size": 16777216,
+      "real_usage": 46,
+      "si_disk": 0,
+      "so_disk": 0,
+      "swap_usage": 18,
+      "total_real": 16234636,
+      "total_swap": 11841452
+    },
+    "network": [
+      {
+        "device": "total",
+        "rx": 10641,
+        "tx": 5436
+      },
+      {
+        "device": "bond0",
+        "rx": 10641,
+        "tx": 5436
+      }
+    ],
+    "nfs": [
+      {
+        "device": "nfs",
+        "read_OPS": 0,
+        "read_max_latency": 0,
+        "total_OPS": 0,
+        "total_max_latency": 0,
+        "write_OPS": 0,
+        "write_max_latency": 0
+      }
+    ],
+    "space": {
+      "total": {
+        "device": "total",
+        "read_access": 0,
+        "read_byte": 0,
+        "utilization": 16,
+        "write_access": 29,
+        "write_byte": 473380
+      },
+      "volume": [
+        {
+          "device": "dm-0",
+          "display_name": "volume1",
+          "read_access": 0,
+          "read_byte": 0,
+          "utilization": 16,
+          "write_access": 29,
+          "write_byte": 473380
+        }
+      ]
+    },
+    "time": 1776533219
+  }
+}

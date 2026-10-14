@@ -1,0 +1,48 @@
+{
+  "data": {
+    "containers": [
+      {
+        "State": {
+          "Dead": false,
+          "Paused": false,
+          "Restarting": false,
+          "Running": true,
+          "Status": "running"
+        },
+        "id": "09492d85a64c9bfb40fbf13ebd1ba45ca2bb148ac91e030fb52bb2529b892984",
+        "image": "ghcr.io/immich-app/immich-server:v2.6.3",
+        "name": "immich_server",
+        "status": "running"
+      },
+      {
+        "State": {
+          "Dead": false,
+          "Paused": false,
+          "Restarting": false,
+          "Running": true,
+          "Status": "running"
+        },
+        "id": "507c0f51141e7dccea132681b0aa65c80a1850937645d0c9912e404008130754",
+        "image": "ghcr.io/immich-app/immich-machine-learning:v2.6.3",
+        "name": "immich_machine_learning",
+        "status": "running"
+      },
+      {
+        "State": {
+          "Dead": false,
+          "Paused": false,
+          "Restarting": false,
+          "Running": false,
+          "Status": "exited"
+        },
+        "id": "d729b18da99b5753b01c220cda00f339c26d10549d1a9f72b0f7db6e56bc1bda",
+        "image": "prom/prometheus:v3.2.1",
+        "name": "prometheus",
+        "status": "stopped"
+      }
+    ],
+    "offset": 0,
+    "total": 3
+  },
+  "success": true
+}

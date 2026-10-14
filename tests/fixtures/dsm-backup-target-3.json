@@ -1,0 +1,21 @@
+{
+  "data": {
+    "capability": {
+      "support_download": true,
+      "support_filter": true,
+      "support_statistics": true
+    },
+    "data_comp": true,
+    "data_enc": false,
+    "format_type": "image",
+    "host_name": "host-01",
+    "is_online": true,
+    "last_detect_time": "2026/04/24 10:57",
+    "owner_id": 1026,
+    "owner_name": "REDACTED",
+    "support_multi_version": true,
+    "uni_key": "REDACTED",
+    "used_size": 3206674163
+  },
+  "success": true
+}

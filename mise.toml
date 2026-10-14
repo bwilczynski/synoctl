@@ -1,0 +1,9 @@
+# Toolchain for local development. Rust crates are pinned in Cargo.toml/Cargo.lock.
+[tools]
+rust = { version = "1.99.0", profile = "minimal", components = ["clippy", "rustfmt"] }
+cargo-dist = "0.33.0"
+
+[tasks]
+build = "cargo build --release"
+test = "cargo test --features fixtures"
+lint = "cargo clippy --all-targets --features fixtures -- -D warnings && cargo fmt --check"

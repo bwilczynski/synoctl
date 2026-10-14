@@ -1,0 +1,113 @@
+{
+  "data": {
+    "data_enc": false,
+    "data_type": "data",
+    "ext3ShareList": [],
+    "name": "Backup to LOCAL",
+    "repo_id": 3,
+    "repository": {
+      "name": "",
+      "repo_id": 3,
+      "share": "backup",
+      "target_type": "image",
+      "transfer_type": "image_local"
+    },
+    "schedule": {
+      "schedule": {
+        "date": "2026/4/24",
+        "date_type": 0,
+        "hour": 1,
+        "last_work_hour": 1,
+        "min": 0,
+        "next_trigger_time": "2026-04-25 01:00",
+        "repeat": 0,
+        "repeat_hour": 0,
+        "repeat_hour_store_config": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23],
+        "repeat_min": 0,
+        "repeat_min_store_config": [],
+        "week_name": "0,1,2,3,4,5,6"
+      },
+      "schedule_enable": true
+    },
+    "source": {
+      "app_config": [],
+      "app_list": [],
+      "app_name_list": [],
+      "backup_filter": {
+        "exclude_list": [],
+        "whitelist": []
+      },
+      "backup_volumes": [],
+      "file_list": [
+        {
+          "dataEncryped": false,
+          "encryptedShare": false,
+          "fileSystem": "BTRFS",
+          "fileSystemType": "internal",
+          "folderPath": "/docker",
+          "fullPath": "/volume1/docker",
+          "isValidSource": true,
+          "missing": false
+        },
+        {
+          "dataEncryped": false,
+          "encryptedShare": false,
+          "fileSystem": "BTRFS",
+          "fileSystemType": "internal",
+          "folderPath": "/Documents",
+          "fullPath": "/volume1/Documents",
+          "isValidSource": true,
+          "missing": false
+        }
+      ],
+      "folder_list": [
+        {
+          "dataEncryped": false,
+          "encryptedShare": false,
+          "fileSystem": "BTRFS",
+          "fileSystemType": "internal",
+          "folderPath": "/docker",
+          "fullPath": "/volume1/docker",
+          "isValidSource": true,
+          "missing": false
+        },
+        {
+          "dataEncryped": false,
+          "encryptedShare": false,
+          "fileSystem": "BTRFS",
+          "fileSystemType": "internal",
+          "folderPath": "/Documents",
+          "fullPath": "/volume1/Documents",
+          "isValidSource": true,
+          "missing": false
+        }
+      ],
+      "share_list": {
+        "Documents": {
+          "dataEncryped": false,
+          "encryptedShare": false,
+          "fileSystem": "BTRFS",
+          "fileSystemType": "internal",
+          "fullPath": "/volume1/Documents",
+          "isValidSource": true
+        },
+        "docker": {
+          "dataEncryped": false,
+          "encryptedShare": false,
+          "fileSystem": "BTRFS",
+          "fileSystemType": "internal",
+          "fullPath": "/volume1/docker",
+          "isValidSource": true
+        }
+      }
+    },
+    "state": "backupable",
+    "status": "none",
+    "target_id": "host-01_1.hbk",
+    "target_type": "image",
+    "task_id": 3,
+    "transfer_type": "image_local",
+    "type": "image:image_local"
+  },
+  "success": true
+}

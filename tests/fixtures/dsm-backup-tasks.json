@@ -1,0 +1,41 @@
+{
+  "data": {
+    "is_data_restoring": false,
+    "is_downloading": false,
+    "is_lun_restoring": false,
+    "is_restoring": false,
+    "is_snapshot_restoring": false,
+    "task_list": [
+      {
+        "data_enc": false,
+        "data_type": "data",
+        "ext3ShareList": [],
+        "name": "Backup to LOCAL",
+        "repo_id": 3,
+        "state": "backupable",
+        "status": "none",
+        "target_id": "host-01_1.hbk",
+        "target_type": "image",
+        "task_id": 3,
+        "transfer_type": "image_local",
+        "type": "image:image_local"
+      },
+      {
+        "data_enc": false,
+        "data_type": "data",
+        "ext3ShareList": [],
+        "name": "Backup to REMOTE",
+        "repo_id": 4,
+        "state": "backupable",
+        "status": "none",
+        "target_id": "host-01_1.hbk",
+        "target_type": "image",
+        "task_id": 4,
+        "transfer_type": "image_remote",
+        "type": "image:image_remote"
+      }
+    ],
+    "total": 2
+  },
+  "success": true
+}
