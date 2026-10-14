@@ -1,0 +1,22 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist' (https://opensource.axo.dev/cargo-dist/)
+[dist]
+cargo-dist-version = "0.33.0"
+ci = "github"
+# Archives only: installs go through mise's github backend (see README).
+installers = []
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-gnu",
+]
+# Build every target natively; aws-lc-sys and the macOS Security framework
+# make cross-compiling impractical.
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
+x86_64-apple-darwin = "macos-15-intel"
+aarch64-unknown-linux-gnu = "ubuntu-24.04-arm"
+x86_64-unknown-linux-gnu = "ubuntu-22.04"

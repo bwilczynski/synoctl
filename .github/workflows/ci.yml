@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: rust
+
+      - name: Lint
+        run: mise run lint
+
+      - name: Test
+        run: mise run test

@@ -1,0 +1,22 @@
+# release-plz keeps one release PR open with the next version (Cargo.toml bump +
+# CHANGELOG.md) from conventional commits, and tags vX.Y.Z when it merges. The
+# tag triggers dist (.github/workflows/release.yml), which builds and creates
+# the GitHub release.
+[workspace]
+git_only = true
+git_release_enable = false
+semver_check = false
+git_tag_name = "v{{ version }}"
+# Tag only when a release PR merges, never on an untagged version in main.
+release_always = false
+# Only user-facing changes open a release PR.
+release_commits = "^(feat|fix)"
+
+[changelog]
+commit_parsers = [
+    { message = "^feat", group = "added" },
+    { message = "^fix", group = "fixed" },
+    { message = "^perf", group = "performance" },
+    { message = "^(build|chore|ci|docs|refactor|style|test)", skip = true },
+    { message = ".*", group = "other" },
+]
