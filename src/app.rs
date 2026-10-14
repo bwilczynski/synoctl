@@ -12,6 +12,7 @@ use crate::cli::{
     BackupsCommand, Cli, ColorMode, Command, ContainersCommand, DockerCommand, ImagesCommand,
     NetworksCommand, OutputFormat, UpdatesCommand, VolumesCommand,
 };
+use crate::completion;
 use crate::config;
 use crate::dsm::client::DsmClient;
 use crate::dsm::session::SessionStore;
@@ -24,6 +25,7 @@ use crate::service::{Service, Warned};
 
 /// Entry point used by `main.rs`; returns the process exit code.
 pub fn main() -> i32 {
+    completion::handle_request();
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(e) => {
@@ -75,6 +77,9 @@ impl Outcome {
 /// Executes a parsed command.
 pub fn run(cli: Cli) -> Result<Outcome> {
     let env = |k: &str| std::env::var(k).ok();
+    if let Command::Completions { shell } = &cli.command {
+        return completion::script(*shell).map(Outcome::ok);
+    }
     if cli.output == OutputFormat::Ids && !lists_ids(&cli.command) {
         return Err(Error::Other(
             "-o ids is only supported by list commands".into(),
@@ -236,7 +241,9 @@ fn execute(svc: &Service, cmd: &Command, ctx: &Ctx) -> Result<String> {
             }),
         },
         Command::Docker { command } => docker(svc, command, ctx),
-        Command::Status => unreachable!("status is handled by run"),
+        Command::Status | Command::Completions { .. } => {
+            unreachable!("status and completions are handled by run")
+        }
     }
 }
 

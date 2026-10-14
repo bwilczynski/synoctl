@@ -1,6 +1,7 @@
 pub mod app;
 pub mod cache;
 pub mod cli;
+pub mod completion;
 pub mod config;
 pub mod dsm;
 pub mod error;

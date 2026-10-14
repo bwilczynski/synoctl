@@ -147,7 +147,7 @@ fn normalize(v: &str) -> &str {
 /// `registry/image:tag` → (`registry/image`, `tag`); the tag is only looked
 /// for after the last `/`, so a registry port is never read as a tag, and a
 /// `@sha256:…` digest is dropped.
-pub(crate) fn split_image_tag(image: &str) -> (&str, &str) {
+pub fn split_image_tag(image: &str) -> (&str, &str) {
     let image = image.split_once('@').map_or(image, |(name, _)| name);
     let name_start = image.rfind('/').map_or(0, |i| i + 1);
     match image[name_start..].rfind(':') {
@@ -157,7 +157,7 @@ pub(crate) fn split_image_tag(image: &str) -> (&str, &str) {
 }
 
 /// Not empty, not `latest`, not a digest.
-pub(crate) fn is_version_tag(tag: &str) -> bool {
+pub fn is_version_tag(tag: &str) -> bool {
     !(tag.is_empty() || tag == "latest" || tag.starts_with("sha256:"))
 }
 
