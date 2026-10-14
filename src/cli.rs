@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use clap_complete::engine::ArgValueCandidates;
+
+use crate::completion;
 
 use crate::model::docker::{ContainerStatus, UpdateStatus};
 
@@ -75,6 +78,20 @@ pub enum Command {
         #[command(subcommand)]
         command: DockerCommand,
     },
+    /// Print a shell completion script
+    Completions {
+        #[arg(value_enum)]
+        shell: Shell,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum Shell {
+    Bash,
+    Zsh,
+    Fish,
+    Powershell,
+    Elvish,
 }
 
 #[derive(Debug, Subcommand)]
@@ -86,7 +103,10 @@ pub enum VolumesCommand {
         wide: bool,
     },
     /// Show a volume and its disks
-    Get { id: String },
+    Get {
+        #[arg(add = ArgValueCandidates::new(completion::volumes))]
+        id: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -98,7 +118,10 @@ pub enum BackupsCommand {
         wide: bool,
     },
     /// Show a backup task's runs, size and folders
-    Get { id: String },
+    Get {
+        #[arg(add = ArgValueCandidates::new(completion::backups))]
+        id: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -137,13 +160,25 @@ pub enum ContainersCommand {
         wide: bool,
     },
     /// Show a container's configuration and state
-    Get { name: String },
+    Get {
+        #[arg(add = ArgValueCandidates::new(completion::containers))]
+        name: String,
+    },
     /// Start a container
-    Start { name: String },
+    Start {
+        #[arg(add = ArgValueCandidates::new(completion::containers))]
+        name: String,
+    },
     /// Stop a container
-    Stop { name: String },
+    Stop {
+        #[arg(add = ArgValueCandidates::new(completion::containers))]
+        name: String,
+    },
     /// Restart a container
-    Restart { name: String },
+    Restart {
+        #[arg(add = ArgValueCandidates::new(completion::containers))]
+        name: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -151,7 +186,10 @@ pub enum ImagesCommand {
     /// List images
     List,
     /// Show an image
-    Get { id: String },
+    Get {
+        #[arg(add = ArgValueCandidates::new(completion::images))]
+        id: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -159,7 +197,10 @@ pub enum NetworksCommand {
     /// List Docker networks
     List,
     /// Show a network and its containers
-    Get { name: String },
+    Get {
+        #[arg(add = ArgValueCandidates::new(completion::networks))]
+        name: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -171,7 +212,10 @@ pub enum UpdatesCommand {
         status: Option<UpdateStatusArg>,
     },
     /// Show a tracked container's source and latest release
-    Get { name: String },
+    Get {
+        #[arg(add = ArgValueCandidates::new(completion::updates))]
+        name: String,
+    },
     /// Look up releases now, ignoring the cache, and list the result
     Check,
 }
