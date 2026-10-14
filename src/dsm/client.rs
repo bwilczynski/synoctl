@@ -79,6 +79,8 @@ pub enum AccessError {
     /// DSM's login error code.
     Login(i64),
     Status(u16),
+    /// An HTML page where DSM's JSON was expected: usually the wrong port.
+    WebPage,
     Parse(String),
 }
 
@@ -88,6 +90,7 @@ impl std::fmt::Display for AccessError {
             Self::Transport(e) => write!(f, "{e}"),
             Self::Login(code) => write!(f, "{}", login_message(*code)),
             Self::Status(code) => write!(f, "status {code}"),
+            Self::WebPage => write!(f, "a web page, not the DSM Web API"),
             Self::Parse(m) => write!(f, "unexpected response: {m}"),
         }
     }
@@ -174,6 +177,7 @@ impl DsmClient {
         let data: serde_json::Map<String, serde_json::Value> =
             self.info_query("all").map_err(|e| match e {
                 CallError::Code(c) => AccessError::Parse(format!("error code {c}")),
+                CallError::Other(Error::Dsm(m)) if m == WEB_PAGE => AccessError::WebPage,
                 CallError::Other(e) => AccessError::Parse(e.to_string()),
             })?;
         Ok(data.keys().cloned().collect())
@@ -431,7 +435,15 @@ fn transport(e: reqwest::Error) -> CallError {
     )))
 }
 
+/// What a port serving a web page instead of the Web API reads as; on a
+/// bare host that is DSM's port 443, a page redirecting browsers to 5001.
+const WEB_PAGE: &str = "synology response is a web page, not the DSM Web API: \
+                        is the port right? DSM's HTTPS port is 5001 unless changed";
+
 fn parse<T: DeserializeOwned>(body: &str) -> Result<Envelope<T>> {
+    if body.trim_start().starts_with('<') {
+        return Err(Error::Dsm(WEB_PAGE.into()));
+    }
     serde_json::from_str(body).map_err(|e| Error::Dsm(format!("synology parse response: {e}")))
 }
 
@@ -879,11 +891,10 @@ mod tests {
             c.system_info().unwrap_err().to_string(),
             "synology request: status 502"
         );
-        assert!(
-            c.storage()
-                .unwrap_err()
-                .to_string()
-                .starts_with("synology parse response: ")
+        assert_eq!(
+            c.storage().unwrap_err().to_string(),
+            "synology response is a web page, not the DSM Web API: \
+             is the port right? DSM's HTTPS port is 5001 unless changed"
         );
     }
 

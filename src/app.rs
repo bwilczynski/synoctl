@@ -9,8 +9,8 @@ use serde::Serialize;
 
 use crate::cache::Cache;
 use crate::cli::{
-    BackupsCommand, Cli, ColorMode, Command, ContainersCommand, DockerCommand, ImagesCommand,
-    NetworksCommand, OutputFormat, UpdatesCommand, VolumesCommand,
+    BackupsCommand, Cli, ColorMode, Command, ConfigCommand, ContainersCommand, DockerCommand,
+    ImagesCommand, NetworksCommand, OutputFormat, UpdatesCommand, VolumesCommand,
 };
 use crate::completion;
 use crate::config;
@@ -22,6 +22,7 @@ use crate::model::docker::Action;
 use crate::releases::HttpReleases;
 use crate::render;
 use crate::service::{Service, Warned};
+use crate::setup;
 
 /// Entry point used by `main.rs`; returns the process exit code.
 pub fn main() -> i32 {
@@ -86,6 +87,9 @@ pub fn run(cli: Cli) -> Result<Outcome> {
         ));
     }
     let color = color_enabled(cli.color, cli.output, std::io::stdout().is_terminal(), &env);
+    if let Command::Config { command } = &cli.command {
+        return run_config(command, &cli, &env, color);
+    }
     let svc = build_service(&cli)?;
     let ctx = Ctx {
         out: cli.output,
@@ -101,6 +105,27 @@ pub fn run(cli: Cli) -> Result<Outcome> {
         });
     }
     execute(&svc, &cli.command, &ctx).map(Outcome::ok)
+}
+
+fn run_config(
+    cmd: &ConfigCommand,
+    cli: &Cli,
+    env: &dyn Fn(&str) -> Option<String>,
+    color: bool,
+) -> Result<Outcome> {
+    let (path, explicit) = config_location(cli.config.as_deref(), env);
+    if let ConfigCommand::Init(args) = cmd {
+        setup::init::run(args, &path, env, &mut setup::prompt::TerminalPrompter)?;
+        if args.no_check {
+            return Ok(Outcome::ok(String::new()));
+        }
+    }
+    let report = setup::check::run(&path, explicit, env);
+    let code = if report.ok { 0 } else { 1 };
+    Ok(Outcome {
+        stdout: emit(cli.output, &report, |r| render::check::table(r, color))?,
+        code,
+    })
 }
 
 /// How to print, and the clock.
@@ -241,8 +266,8 @@ fn execute(svc: &Service, cmd: &Command, ctx: &Ctx) -> Result<String> {
             }),
         },
         Command::Docker { command } => docker(svc, command, ctx),
-        Command::Status | Command::Completions { .. } => {
-            unreachable!("status and completions are handled by run")
+        Command::Status | Command::Config { .. } | Command::Completions { .. } => {
+            unreachable!("status, config and completions are handled by run")
         }
     }
 }

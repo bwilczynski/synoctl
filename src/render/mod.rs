@@ -2,6 +2,7 @@
 //! templates (homelab-cli/internal/cli/{docker,storage,system}/templates).
 
 pub mod backups;
+pub mod check;
 pub mod docker;
 pub mod format;
 pub mod info;
