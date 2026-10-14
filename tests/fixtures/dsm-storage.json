@@ -1,0 +1,133 @@
+{
+  "success": true,
+  "data": {
+    "volumes": [
+      {
+        "atime_checked": false,
+        "atime_opt": "relatime",
+        "cacheStatus": "",
+        "cache_advisor_running": false,
+        "cache_disks": [],
+        "can_assemble": false,
+        "container": "internal",
+        "deploy_path": "volume_1",
+        "desc": "SHR, btrfs",
+        "device_type": "shr_with_1_disk_protect",
+        "disk_failure_number": 0,
+        "disks": [],
+        "drive_type": 0,
+        "fs_type": "btrfs",
+        "id": "volume_1",
+        "is_acting": false,
+        "is_actioning": false,
+        "is_backgroundbuilding": false,
+        "is_inode_full": false,
+        "is_scheduled": true,
+        "is_writable": true,
+        "pool_path": "reuse_1",
+        "raidType": "single",
+        "repair_action": "none",
+        "scrubbingStatus": "schedule_done",
+        "size": {
+          "free_inode": "0",
+          "total": "11508017246208",
+          "total_device": "11987517964288",
+          "total_inode": "0",
+          "used": "8230588534784"
+        },
+        "space_path": "/dev/vg1000/lv",
+        "space_status": {
+          "detail": "pool_normal",
+          "show_attention": false,
+          "show_danger": false,
+          "show_flag_detail": "",
+          "status": "fs_normal",
+          "summary_status": "normal"
+        },
+        "status": "normal",
+        "summary_status": "normal",
+        "uuid": "REDACTED",
+        "vol_path": "/volume1"
+      }
+    ],
+    "disks": [
+      {
+        "device": "/dev/sda",
+        "diskType": "SATA",
+        "id": "sda",
+        "model": "WD Red Plus 4TB",
+        "name": "Drive 1",
+        "num_id": 1,
+        "overview_status": "normal",
+        "serial": "REDACTED",
+        "size_total": "4000787030016",
+        "slot_id": 1,
+        "smart_status": "normal",
+        "status": "normal",
+        "temp": 35,
+        "vendor": "WDC"
+      },
+      {
+        "device": "/dev/sdb",
+        "diskType": "SATA",
+        "id": "sdb",
+        "model": "WD Red Plus 4TB",
+        "name": "Drive 2",
+        "num_id": 2,
+        "overview_status": "normal",
+        "serial": "REDACTED",
+        "size_total": "4000787030016",
+        "slot_id": 2,
+        "smart_status": "normal",
+        "status": "normal",
+        "temp": 41,
+        "vendor": "WDC"
+      },
+      {
+        "device": "/dev/sdc",
+        "diskType": "SATA",
+        "id": "sdc",
+        "model": "Seagate IronWolf 4TB",
+        "name": "Drive 3",
+        "num_id": 3,
+        "overview_status": "normal",
+        "serial": "REDACTED",
+        "size_total": "4000787030016",
+        "slot_id": 3,
+        "smart_status": "normal",
+        "status": "normal",
+        "temp": 41,
+        "vendor": "Seagate"
+      },
+      {
+        "device": "/dev/sdd",
+        "diskType": "SATA",
+        "id": "sdd",
+        "model": "Seagate IronWolf 4TB",
+        "name": "Drive 4",
+        "num_id": 4,
+        "overview_status": "normal",
+        "serial": "REDACTED",
+        "size_total": "4000787030016",
+        "slot_id": 4,
+        "smart_status": "normal",
+        "status": "normal",
+        "temp": 36,
+        "vendor": "Seagate"
+      }
+    ],
+    "storagePools": [
+      {
+        "id": "reuse_1",
+        "disks": ["sda", "sdb", "sdc", "sdd"],
+        "raidType": "single",
+        "status": "normal",
+        "summary_status": "normal",
+        "size": {
+          "total": "11987517964288",
+          "used": "11987517964288"
+        }
+      }
+    ]
+  }
+}

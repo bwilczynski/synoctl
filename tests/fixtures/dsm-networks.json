@@ -1,0 +1,60 @@
+{
+  "data": {
+    "network": [
+      {
+        "containers": [
+          "vaultwarden"
+        ],
+        "driver": "bridge",
+        "enable_ipv6": false,
+        "gateway": "172.20.0.1",
+        "id": "aabbccddeeff001122334455667788990011223344556677889900112233445501",
+        "iprange": "",
+        "name": "vaultwarden_default",
+        "subnet": "172.20.0.0/16"
+      },
+      {
+        "containers": [
+          "immich_server",
+          "immich_machine_learning",
+          "immich_redis",
+          "immich_postgres"
+        ],
+        "driver": "bridge",
+        "enable_ipv6": false,
+        "gateway": "172.18.0.1",
+        "id": "aabbccddeeff001122334455667788990011223344556677889900112233445502",
+        "iprange": "",
+        "name": "immich_default",
+        "subnet": "172.18.0.0/16"
+      },
+      {
+        "containers": [
+          "cadvisor",
+          "grafana",
+          "loki",
+          "prometheus"
+        ],
+        "driver": "bridge",
+        "enable_ipv6": false,
+        "gateway": "172.22.0.1",
+        "id": "aabbccddeeff001122334455667788990011223344556677889900112233445503",
+        "iprange": "",
+        "name": "grafana_default",
+        "subnet": "172.22.0.0/16"
+      },
+      {
+        "containers": [
+          "node-exporter"
+        ],
+        "driver": "host",
+        "enable_ipv6": false,
+        "gateway": "",
+        "id": "aabbccddeeff001122334455667788990011223344556677889900112233445504",
+        "iprange": "",
+        "name": "host",
+        "subnet": ""
+      }
+    ]
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "data": {
+    "resources": [
+      {
+        "cpu": 0.325,
+        "memory": 394334208,
+        "memoryPercent": 2.372,
+        "name": "immich_server"
+      },
+      {
+        "cpu": 0.025,
+        "memory": 14036992,
+        "memoryPercent": 0.084,
+        "name": "immich_machine_learning"
+      },
+      {
+        "cpu": 0.425,
+        "memory": 359710720,
+        "memoryPercent": 2.164,
+        "name": "prometheus"
+      }
+    ]
+  },
+  "success": true
+}

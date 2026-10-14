@@ -1,0 +1,29 @@
+{
+  "success": true,
+  "data": {
+    "cpu_clock_speed": 1500,
+    "cpu_cores": "4",
+    "cpu_family": "Celeron",
+    "cpu_series": "J3455",
+    "cpu_vendor": "INTEL",
+    "enabled_ntp": true,
+    "external_pci_slot_info": [],
+    "firmware_date": "2025/07/29",
+    "firmware_ver": "DSM 7.1.1-42962 Update 9",
+    "model": "DS918+",
+    "ntp_server": "time.google.com",
+    "ram_size": 16384,
+    "sata_dev": [],
+    "serial": "REDACTED",
+    "support_esata": "yes",
+    "sys_temp": 43,
+    "sys_tempwarn": false,
+    "systempwarn": false,
+    "temperature_warning": false,
+    "time": "2026-04-18 10:00:00",
+    "time_zone": "Sarajevo",
+    "time_zone_desc": "(GMT+01:00) Sarajevo, Skopie, Warsaw, Zagreb",
+    "up_time": "100:00:00",
+    "usb_dev": []
+  }
+}

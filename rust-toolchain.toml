@@ -1,0 +1,6 @@
+# Pins the toolchain for CI runners that use rustup directly (dist's release
+# builds). Keep in sync with the rust version in mise.toml.
+[toolchain]
+channel = "1.99.0"
+profile = "minimal"
+components = ["clippy", "rustfmt"]

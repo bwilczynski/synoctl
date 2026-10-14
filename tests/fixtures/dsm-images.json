@@ -1,0 +1,53 @@
+{
+  "data": {
+    "images": [
+      {
+        "created": 1727386302,
+        "description": "",
+        "id": "sha256:aabbccddeeff001122334455667788990011223344556677889900112233445500",
+        "repository": "busybox",
+        "size": 4421246,
+        "tags": [
+          "latest"
+        ],
+        "virtual_size": 4421246
+      },
+      {
+        "created": 1742442027,
+        "description": "",
+        "id": "sha256:bbccddeeff001122334455667788990011223344556677889900112233445500bb",
+        "repository": "gcr.io/cadvisor/cadvisor",
+        "size": 80729315,
+        "tags": [
+          "v0.52.1"
+        ],
+        "virtual_size": 80729315
+      },
+      {
+        "created": 1591132897,
+        "description": "",
+        "id": "sha256:ccddeeff001122334455667788990011223344556677889900112233445500ccdd",
+        "repository": "eclipse-mosquitto",
+        "size": 6745886,
+        "tags": [
+          "latest"
+        ],
+        "virtual_size": 6745886
+      },
+      {
+        "created": 1664894720,
+        "description": "",
+        "id": "sha256:ddeeff001122334455667788990011223344556677889900112233445500ddeeff",
+        "repository": "certbot/dns-route53",
+        "size": 199188965,
+        "tags": [
+          "latest"
+        ],
+        "virtual_size": 199188965
+      }
+    ],
+    "limit": 37,
+    "offset": 0,
+    "total": 37
+  }
+}

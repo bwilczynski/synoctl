@@ -1,0 +1,74 @@
+{
+  "data": {
+    "details": {
+      "Config": {
+        "Image": "ghcr.io/immich-app/immich-server:v2.6.3",
+        "Env": [
+          "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/src/app/server/bin",
+          "NODE_VERSION=24.14.1",
+          "IMMICH_VERSION=v2.6.3"
+        ],
+        "Cmd": ["start.sh"],
+        "Entrypoint": ["tini", "--", "/bin/bash", "-c"],
+        "Labels": {
+          "com.docker.compose.project": "immich",
+          "com.docker.compose.service": "immich-server"
+        },
+        "Volumes": {
+          "/data": {}
+        },
+        "WorkingDir": "/usr/src/app",
+        "Hostname": "09492d85a64c"
+      },
+      "HostConfig": {
+        "Memory": 0,
+        "Privileged": false,
+        "RestartPolicy": {
+          "Name": "always",
+          "MaximumRetryCount": 0
+        },
+        "Binds": ["/etc/localtime:/etc/localtime:ro", "/docker/immich/upload:/data:rw"]
+      },
+      "Name": "/immich_server",
+      "RestartCount": 0,
+      "State": {
+        "Dead": false,
+        "Paused": false,
+        "Restarting": false,
+        "Running": true,
+        "Status": "running",
+        "StartedAt": "2026-04-08T19:46:34.627081493Z",
+        "FinishedAt": "0001-01-01T00:00:00Z",
+        "ExitCode": 0,
+        "OOMKilled": false
+      }
+    },
+    "profile": {
+      "name": "immich_server",
+      "image": "ghcr.io/immich-app/immich-server:v2.6.3",
+      "env_variables": [
+        {"key": "PATH", "value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/src/app/server/bin"},
+        {"key": "NODE_VERSION", "value": "24.14.1"},
+        {"key": "IMMICH_VERSION", "value": "v2.6.3"},
+        {"key": "DB_PASSWORD", "value": "REDACTED"},
+        {"key": "DB_USERNAME", "value": "postgres"}
+      ],
+      "network": [
+        {"name": "immich_default", "driver": "bridge"},
+        {"name": "monitoring", "driver": "bridge"}
+      ],
+      "port_bindings": [
+        {"container_port": 2283, "host_port": 12080, "type": "tcp"}
+      ],
+      "volume_bindings": [
+        {"host_absolute_path": "/etc/localtime", "mount_point": "/etc/localtime", "type": "ro"},
+        {"host_volume_file": "/docker/immich/upload", "mount_point": "/data", "type": "rw"}
+      ],
+      "privileged": false,
+      "memory_limit": 0,
+      "cmd": "start.sh",
+      "enable_restart_policy": true
+    }
+  },
+  "success": true
+}
