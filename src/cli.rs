@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_complete::engine::ArgValueCandidates;
 
 use crate::completion;
@@ -77,6 +77,11 @@ pub enum Command {
     Docker {
         #[command(subcommand)]
         command: DockerCommand,
+    },
+    /// Create the config file, or check it and the connection to the NAS
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
     },
     /// Print a shell completion script
     Completions {
@@ -260,4 +265,34 @@ impl From<UpdateStatusArg> for UpdateStatus {
             UpdateStatusArg::Unknown => Self::Unknown,
         }
     }
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ConfigCommand {
+    /// Create the config file, prompting for anything not given as a flag
+    Init(InitArgs),
+    /// Check the config and the connection to the NAS, step by step
+    Check,
+}
+
+#[derive(Debug, Default, Args)]
+pub struct InitArgs {
+    /// NAS host or host:port (always reached over https; DSM uses 5001)
+    #[arg(long)]
+    pub host: Option<String>,
+    /// DSM account; a dedicated one without 2-step verification
+    #[arg(long)]
+    pub username: Option<String>,
+    /// Password for --username; defaults to $SYNO_PASSWORD
+    #[arg(long)]
+    pub password: Option<String>,
+    /// Accept the NAS's self-signed certificate
+    #[arg(long)]
+    pub insecure_tls: bool,
+    /// Overwrite an existing config file
+    #[arg(long)]
+    pub force: bool,
+    /// Do not contact the NAS: skip the certificate probe and the final check
+    #[arg(long)]
+    pub no_check: bool,
 }

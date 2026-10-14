@@ -4,6 +4,7 @@
 use crate::model::docker::{ContainerStatus, UpdateStatus};
 use crate::model::{BackupTaskResult, BackupTaskStatus, DiskStatus, Verdict, VolumeStatus};
 use crate::service::{DISK_WARN_C, VOLUME_ERROR_PCT, VOLUME_WARN_PCT};
+use crate::setup::check::Status;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Paint {
@@ -130,6 +131,17 @@ pub fn temperature(c: i64, on: bool) -> String {
         Paint::Green
     };
     paint(&format!("{c}°C"), p, on)
+}
+
+/// `config check` marks: ✓ ! ✗ –.
+pub fn check_mark(s: Status, on: bool) -> String {
+    let (mark, p) = match s {
+        Status::Pass => ("✓", Paint::Green),
+        Status::Warn => ("!", Paint::Yellow),
+        Status::Fail => ("✗", Paint::Red),
+        Status::Skip => ("–", Paint::Dim),
+    };
+    paint(mark, p, on)
 }
 
 #[cfg(test)]

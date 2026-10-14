@@ -10,3 +10,4 @@ mod private_fs;
 pub mod releases;
 pub mod render;
 pub mod service;
+pub mod setup;
