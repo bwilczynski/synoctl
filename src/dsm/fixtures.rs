@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::de::DeserializeOwned;
 
@@ -15,7 +15,7 @@ use super::types::{
 use super::{DsmApi, backup_missing, container_not_found, docker_missing};
 use crate::error::{Error, Result};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FixtureApi {
     pub system_info: SystemInfo,
     pub utilization: Utilization,
@@ -40,30 +40,9 @@ pub struct FixtureApi {
     pub fail_only: Vec<&'static str>,
     /// When true every call fails, simulating an unreachable NAS.
     pub fail: bool,
-    /// Container actions performed, e.g. `"restart prometheus"`.
-    pub actions: Mutex<Vec<String>>,
-}
-
-impl Clone for FixtureApi {
-    fn clone(&self) -> Self {
-        Self {
-            system_info: self.system_info.clone(),
-            utilization: self.utilization.clone(),
-            storage: self.storage.clone(),
-            containers: self.containers.clone(),
-            details: self.details.clone(),
-            resources: self.resources.clone(),
-            images: self.images.clone(),
-            networks: self.networks.clone(),
-            backup_tasks: self.backup_tasks.clone(),
-            backup_details: self.backup_details.clone(),
-            backup_statuses: self.backup_statuses.clone(),
-            backup_targets: self.backup_targets.clone(),
-            fail_only: self.fail_only.clone(),
-            fail: self.fail,
-            actions: Mutex::new(self.actions.lock().expect("actions lock").clone()),
-        }
-    }
+    /// Container actions performed, e.g. `"restart prometheus"`; shared by
+    /// clones, so a test can watch a `FixtureApi` it handed to a `Service`.
+    pub actions: Arc<Mutex<Vec<String>>>,
 }
 
 const HOST: &str = "fixture";

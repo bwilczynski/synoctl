@@ -6,11 +6,39 @@ pub mod types;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod fixtures;
 
+use std::thread::ScopedJoinHandle;
+
 use crate::error::Result;
 use types::{
     BackupTarget, BackupTaskDetail, BackupTaskList, BackupTaskStatus, ContainerDetailResponse,
     ContainerList, ContainerResources, ImageList, NetworkList, Storage, SystemInfo, Utilization,
 };
+
+/// Runs independent DSM reads concurrently, so a command waits for the
+/// slowest call rather than the sum of all of them, and binds each result
+/// to its name:
+///
+/// ```ignore
+/// fetch!(list = self.api.containers(), res = self.api.container_resources());
+/// ```
+///
+/// Returns the first error in argument order from the enclosing function.
+macro_rules! fetch {
+    ($($name:ident = $read:expr),+ $(,)?) => {
+        let ($($name,)+) = std::thread::scope(|s| {
+            $(let $name = s.spawn(|| $read);)+
+            Ok::<_, $crate::error::Error>(($($crate::dsm::joined($name)?,)+))
+        })?;
+    };
+}
+pub(crate) use fetch;
+
+/// Result of a `fetch!` thread; a panic in the read is re-raised here.
+pub(crate) fn joined<T>(handle: ScopedJoinHandle<'_, Result<T>>) -> Result<T> {
+    handle
+        .join()
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+}
 
 /// The DSM calls synoctl makes. Implemented by the HTTP client and by
 /// `FixtureApi`. `Sync` so independent reads can run on parallel

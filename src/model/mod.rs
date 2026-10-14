@@ -5,6 +5,8 @@
 use jiff::Timestamp;
 use serde::Serialize;
 
+pub mod docker;
+
 /// Lists that `-o ids` can print, one ID per line.
 pub trait Ids {
     fn ids(&self) -> Vec<String>;
