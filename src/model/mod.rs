@@ -7,6 +7,20 @@ use serde::Serialize;
 
 pub mod docker;
 
+/// `as_str()` for an enum: the same text its JSON value has, for tables.
+macro_rules! labels {
+    ($ty:ty { $($variant:ident => $text:literal),+ $(,)? }) => {
+        impl $ty {
+            pub fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $text,)+
+                }
+            }
+        }
+    };
+}
+pub(crate) use labels;
+
 /// Lists that `-o ids` can print, one ID per line.
 pub trait Ids {
     fn ids(&self) -> Vec<String>;
@@ -205,5 +219,142 @@ impl std::ops::Deref for BackupTaskDetail {
     type Target = BackupTask;
     fn deref(&self) -> &BackupTask {
         &self.task
+    }
+}
+
+/// How an area of `status` looks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Verdict {
+    Ok,
+    Info,
+    Warn,
+    Error,
+    /// Its data could not be read.
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StatusArea {
+    System,
+    Volumes,
+    Disks,
+    Containers,
+    Backups,
+    Updates,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct StatusRow {
+    pub area: StatusArea,
+    pub verdict: Verdict,
+    pub summary: String,
+    /// What is wrong, one line each.
+    pub problems: Vec<String>,
+}
+
+/// `status`: one row per area, in display order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct NasStatus {
+    pub rows: Vec<StatusRow>,
+}
+
+impl NasStatus {
+    pub fn has_error(&self) -> bool {
+        self.rows.iter().any(|r| r.verdict == Verdict::Error)
+    }
+}
+
+labels!(VolumeStatus { Normal => "normal", Degraded => "degraded", Repairing => "repairing", Crashed => "crashed" });
+labels!(DiskStatus { Normal => "normal", Warning => "warning", Failing => "failing", Critical => "critical" });
+labels!(BackupTaskStatus { Idle => "idle", Running => "running", Suspended => "suspended", Error => "error" });
+labels!(BackupTaskResult { Success => "success", Warning => "warning", Failed => "failed", Skipped => "skipped", Unknown => "unknown" });
+labels!(Verdict { Ok => "ok", Info => "info", Warn => "warn", Error => "error", Unknown => "unknown" });
+
+#[cfg(test)]
+mod tests {
+    use super::docker::*;
+    use super::*;
+
+    fn json(v: impl Serialize) -> String {
+        serde_json::to_value(v)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    #[test]
+    fn labels_match_json() {
+        for v in [
+            VolumeStatus::Normal,
+            VolumeStatus::Degraded,
+            VolumeStatus::Repairing,
+            VolumeStatus::Crashed,
+        ] {
+            assert_eq!(v.as_str(), json(v));
+        }
+        for v in [
+            DiskStatus::Normal,
+            DiskStatus::Warning,
+            DiskStatus::Failing,
+            DiskStatus::Critical,
+        ] {
+            assert_eq!(v.as_str(), json(v));
+        }
+        for v in [
+            BackupTaskStatus::Idle,
+            BackupTaskStatus::Running,
+            BackupTaskStatus::Suspended,
+            BackupTaskStatus::Error,
+        ] {
+            assert_eq!(v.as_str(), json(v));
+        }
+        for v in [
+            BackupTaskResult::Success,
+            BackupTaskResult::Warning,
+            BackupTaskResult::Failed,
+            BackupTaskResult::Skipped,
+            BackupTaskResult::Unknown,
+        ] {
+            assert_eq!(v.as_str(), json(v));
+        }
+        for v in [
+            Verdict::Ok,
+            Verdict::Info,
+            Verdict::Warn,
+            Verdict::Error,
+            Verdict::Unknown,
+        ] {
+            assert_eq!(v.as_str(), json(v));
+        }
+        for v in [
+            ContainerStatus::Running,
+            ContainerStatus::Stopped,
+            ContainerStatus::Paused,
+            ContainerStatus::Restarting,
+            ContainerStatus::Dead,
+        ] {
+            assert_eq!(v.as_str(), json(v));
+        }
+        for v in [
+            RestartPolicy::Always,
+            RestartPolicy::UnlessStopped,
+            RestartPolicy::OnFailure,
+            RestartPolicy::No,
+        ] {
+            assert_eq!(v.as_str(), json(v));
+        }
+        for v in [
+            UpdateStatus::UpToDate,
+            UpdateStatus::UpdateAvailable,
+            UpdateStatus::Stale,
+            UpdateStatus::Unknown,
+        ] {
+            assert_eq!(v.as_str(), json(v));
+        }
+        assert_eq!(Protocol::Udp.as_str(), json(Protocol::Udp));
+        assert_eq!(MountMode::Ro.as_str(), json(MountMode::Ro));
     }
 }
