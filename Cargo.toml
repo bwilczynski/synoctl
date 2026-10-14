@@ -13,7 +13,7 @@ fixtures = []
 [dependencies]
 clap = { version = "4.6.7", features = ["derive"] }
 clap_complete = { version = "=4.6.11", features = ["unstable-dynamic"] }
-jiff = "0.2.38"
+jiff = { version = "0.2.38", features = ["serde"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "json", "cookies", "rustls"] }
 rpassword = "7.5.4"
 serde = { version = "1.0.229", features = ["derive"] }
