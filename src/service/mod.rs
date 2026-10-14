@@ -11,17 +11,44 @@ pub use info::parse_uptime;
 
 use jiff::tz::TimeZone;
 
+use crate::config::SourceConfig;
 use crate::dsm::DsmApi;
+use crate::releases::{NoReleases, Releases};
 
 pub struct Service {
     pub(crate) api: Box<dyn DsmApi>,
     /// The NAS's zone, for DSM timestamps that carry no offset.
     pub(crate) tz: TimeZone,
+    pub(crate) releases: Box<dyn Releases>,
+    /// `updates.sources` from the config.
+    pub(crate) sources: Vec<SourceConfig>,
+    /// Where `updates.sources` lives, for the "no release source" hint.
+    pub(crate) sources_hint: String,
 }
 
 impl Service {
     pub fn new(api: Box<dyn DsmApi>, tz: TimeZone) -> Self {
-        Self { api, tz }
+        Self {
+            api,
+            tz,
+            releases: Box::new(NoReleases),
+            sources: Vec::new(),
+            sources_hint: String::new(),
+        }
+    }
+
+    /// Release lookups for `docker updates` and `status`. `sources_hint`
+    /// names the config file in the "no release source" warning.
+    pub fn with_updates(
+        mut self,
+        releases: Box<dyn Releases>,
+        sources: Vec<SourceConfig>,
+        sources_hint: String,
+    ) -> Self {
+        self.releases = releases;
+        self.sources = sources;
+        self.sources_hint = sources_hint;
+        self
     }
 }
 
