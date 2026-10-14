@@ -5,6 +5,8 @@ mod backups;
 pub mod docker;
 mod info;
 mod status;
+
+pub use status::{DISK_WARN_C, VOLUME_ERROR_PCT, VOLUME_WARN_PCT};
 mod utilization;
 mod volumes;
 
