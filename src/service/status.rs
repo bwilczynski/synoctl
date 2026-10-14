@@ -317,10 +317,23 @@ fn updates_row(list: &UpdateList, warnings: &[String]) -> StatusRow {
             Vec::new(),
         );
     }
+    let count = |st| list.items.iter().filter(|u| u.status == st).count();
+    let mut parts = vec![format!(
+        "{} of {} up to date",
+        count(UpdateStatus::UpToDate),
+        list.items.len()
+    )];
+    if stale {
+        parts.push(format!("{} not checked yet", count(UpdateStatus::Stale)));
+    }
+    let unknown = count(UpdateStatus::Unknown);
+    if unknown > 0 {
+        parts.push(format!("{unknown} without a release source"));
+    }
     row(
         StatusArea::Updates,
         Verdict::Ok,
-        "all tracked containers up to date".into(),
+        parts.join(", "),
         Vec::new(),
     )
 }
@@ -567,10 +580,16 @@ mod tests {
         let s = status(api);
         assert_eq!(
             (row(&s, Updates).verdict, row(&s, Updates).summary.as_str()),
-            (Ok, "all tracked containers up to date")
+            (Ok, "2 of 3 up to date, 1 without a release source")
         );
         let s = svc(fixtures()).status(now());
-        assert_eq!(row(&s, Updates).verdict, Ok);
+        assert_eq!(
+            (row(&s, Updates).verdict, row(&s, Updates).summary.as_str()),
+            (
+                Ok,
+                "0 of 3 up to date, 2 not checked yet, 1 without a release source"
+            )
+        );
     }
 
     struct RateLimited;
