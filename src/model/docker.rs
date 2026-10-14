@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use jiff::Timestamp;
 use serde::Serialize;
 
-use super::Ids;
+use super::{Ids, labels};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -285,3 +285,9 @@ impl std::ops::Deref for UpdateDetail {
         &self.update
     }
 }
+
+labels!(ContainerStatus { Running => "running", Stopped => "stopped", Paused => "paused", Restarting => "restarting", Dead => "dead" });
+labels!(RestartPolicy { Always => "always", UnlessStopped => "unlessStopped", OnFailure => "onFailure", No => "no" });
+labels!(Protocol { Tcp => "tcp", Udp => "udp" });
+labels!(MountMode { Ro => "ro", Rw => "rw" });
+labels!(UpdateStatus { UpToDate => "upToDate", UpdateAvailable => "updateAvailable", Stale => "stale", Unknown => "unknown" });

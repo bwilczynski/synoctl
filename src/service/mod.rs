@@ -4,6 +4,7 @@
 mod backups;
 pub mod docker;
 mod info;
+mod status;
 mod utilization;
 mod volumes;
 
