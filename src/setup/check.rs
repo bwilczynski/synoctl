@@ -293,6 +293,8 @@ fn auth(client: &DsmClient, username: &str) -> Result<(Check, ()), Check> {
         Err(e @ AccessError::Login(_)) => {
             Err(fail(e.to_string()).hint("check username and password"))
         }
+        Err(e @ AccessError::Password(_)) => Err(fail(e.to_string())
+            .hint("run the command yourself: it must print the password on its first line")),
         Err(e) => Err(fail(e.to_string())),
     }
 }
