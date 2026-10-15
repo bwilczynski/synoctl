@@ -117,7 +117,8 @@ and network names, the first 12 characters of an image digest, volume IDs
 (`volume_1`) and backup task numbers.
 
 `--wide` adds columns: volume usage and filesystem, a backup task's last and
-next run and stored size, a container's restart count and memory share.
+next run and stored size, a container's memory share. A container's restart
+count is only in `get`: DSM's container list does not report it.
 
 On a terminal, status cells are coloured (green healthy, yellow degraded or
 warning, red crashed, failing or failed, dim stopped or idle), as are volume

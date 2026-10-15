@@ -95,7 +95,8 @@ DSM's own identifiers, unprefixed:
   templates in `homelab-cli/internal/cli/{docker,storage,system}/templates`),
   minus `DEVICE`. `--wide` on `list` adds columns hlctl only showed in `get`
   (e.g. volumes: filesystem, pool status; backups: last run, next run, size;
-  containers: restart count, memory percent).
+  containers: memory percent). `restartCount` is only on `containers get`:
+  DSM's container list does not report it, so list items omit the field.
 - `info` is a key/value table (one NAS). `utilization` is a key/value block
   for CPU, memory and swap, followed by `NETWORK` (per interface rx/tx per
   second, `total` excluded as in homelab-api) and `DISKS` (read/write ops per
