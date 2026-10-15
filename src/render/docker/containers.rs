@@ -15,7 +15,7 @@ pub fn list(l: &ContainerList, wide: bool, color: bool) -> String {
     let mut t = Table::new();
     let mut header = vec!["ID", "IMAGE", "STATUS", "CPU", "MEMORY"];
     if wide {
-        header.extend(["RESTARTS", "MEM%"]);
+        header.push("MEM%");
     }
     t.row(&header);
     for c in &l.items {
@@ -27,7 +27,6 @@ pub fn list(l: &ContainerList, wide: bool, color: bool) -> String {
             format_bytes(c.resources.memory_bytes),
         ];
         if wide {
-            row.push(c.restart_count.to_string());
             row.push(cpu(c.resources.memory_percent));
         }
         t.row(&row.iter().map(String::as_str).collect::<Vec<_>>());
@@ -144,22 +143,16 @@ mod tests {
     }
 
     #[test]
-    fn wide_list_adds_restarts_and_memory_share() {
+    fn wide_list_adds_memory_share() {
         let l = svc(fixtures()).list_containers(None).unwrap();
         let out = list(&l, true, false);
         assert!(out.starts_with("ID  "), "{out}");
         assert!(
-            out.lines()
-                .next()
-                .unwrap()
-                .ends_with("MEMORY    RESTARTS  MEM%"),
+            out.lines().next().unwrap().ends_with("MEMORY    MEM%"),
             "{out}"
         );
         assert!(
-            out.lines()
-                .nth(1)
-                .unwrap()
-                .ends_with("376.1 MB  0         2.4%"),
+            out.lines().nth(1).unwrap().ends_with("376.1 MB  2.4%"),
             "{out}"
         );
     }

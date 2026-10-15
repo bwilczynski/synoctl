@@ -27,7 +27,6 @@ impl Service {
                 name: c.name.clone(),
                 status: container_status(&c.state),
                 image: c.image.clone(),
-                restart_count: 0,
                 resources: resources(find(&res.resources, &c.name)),
             })
             .filter(|c| status.is_none_or(|s| c.status == s))
@@ -48,9 +47,9 @@ impl Service {
                 name: d.profile.name.clone(),
                 status: container_status(state),
                 image: d.profile.image.clone(),
-                restart_count: d.details.restart_count,
                 resources: resources(find(&res.resources, name)),
             },
+            restart_count: d.details.restart_count,
             started_at: state.started_at.parse().unwrap_or(Timestamp::UNIX_EPOCH),
             finished_at: (!running)
                 .then(|| state.finished_at.parse::<Timestamp>().ok())
@@ -192,7 +191,20 @@ mod tests {
                 memory_percent: 2.372
             }
         );
-        assert_eq!(l.items[0].restart_count, 0);
+        let item = serde_json::to_value(&l.items[0]).unwrap();
+        assert!(item.get("restartCount").is_none(), "{item}");
+    }
+
+    #[test]
+    fn get_reports_the_restart_count() {
+        let mut api = fixtures();
+        api.details
+            .get_mut("immich_server")
+            .unwrap()
+            .details
+            .restart_count = 7;
+        let d = svc(api).get_container("immich_server").unwrap();
+        assert_eq!(serde_json::to_value(&d).unwrap()["restartCount"], 7);
     }
 
     #[test]

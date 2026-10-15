@@ -57,7 +57,6 @@ pub struct Container {
     pub name: String,
     pub status: ContainerStatus,
     pub image: String,
-    pub restart_count: i64,
     pub resources: ContainerResources,
 }
 
@@ -77,6 +76,8 @@ impl Ids for ContainerList {
 pub struct ContainerDetail {
     #[serde(flatten)]
     pub container: Container,
+    /// Only here: DSM's container list does not report it.
+    pub restart_count: i64,
     pub started_at: Timestamp,
     /// Only for a container that is not running.
     #[serde(skip_serializing_if = "Option::is_none")]
