@@ -368,7 +368,8 @@ impl DsmClient {
         sorted.sort();
         let query: Vec<String> = sorted.iter().map(|(k, v)| format!("{k}={v}")).collect();
         format!(
-            "{}/{api}.{method}.v{version}?{}",
+            "{}@{}/{api}.{method}.v{version}?{}",
+            self.username,
             self.host,
             query.join("&")
         )
@@ -921,6 +922,26 @@ mod tests {
             let name = f.unwrap().file_name().to_string_lossy().into_owned();
             assert!(!name.contains("S1"), "{name}");
         }
+    }
+
+    #[test]
+    fn cached_reads_are_not_shared_between_accounts() {
+        let server = MockServer::start();
+        let dir = tempfile::tempdir().unwrap();
+        mock_auth(&server);
+        mock_login(&server, "S1");
+        let info = mock_call(&server, "SYNO.Core.System", "info", "S1", info_ok());
+        cached(&server, &dir).system_info().unwrap();
+        server.mock(|w, t| {
+            w.path(ENTRY)
+                .query_param("method", "login")
+                .query_param("account", "v");
+            t.json_body(json!({"success": true, "data": {"sid": "S1"}}));
+        });
+        let mut other = cached(&server, &dir);
+        other.username = "v".into();
+        other.system_info().unwrap();
+        info.assert_calls(2);
     }
 
     #[test]
