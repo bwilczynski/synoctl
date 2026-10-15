@@ -129,7 +129,8 @@ Path: `--config PATH` > `SYNOCTL_CONFIG` >
 ```toml
 host = "192.168.1.10:5001"     # required; host[:port]; always https
 username = "synoctl"           # required; a dedicated DSM account is recommended
-password = "…"                 # required
+password = "…"                 # required, unless password_command is set
+# password_command = "rbw get synoctl"  # prints the password; instead of password
 # insecure_tls = true          # DSM ships a self-signed certificate
 # timezone = "Europe/Warsaw"   # IANA zone for backup times; default: local zone
 # auth_version = 6             # SYNO.API.Auth login version; 3 for old DSM
@@ -147,6 +148,12 @@ source = "dani-garcia/vaultwarden"
   `SYNO_INSECURE_TLS`, `SYNO_TIMEZONE`, `SYNO_AUTH_VERSION`, `SYNO_CACHE_TTL`.
   `GITHUB_TOKEN`, when set, is sent as a bearer token to the GitHub API only.
   `updates.sources` is file-only.
+- `password_command` runs through `sh -c` with the terminal's stdin and
+  stderr; the first line of its stdout is the password. It runs only when a
+  login is needed (never when the stored SID works) and at most once per run.
+  A non-zero exit or empty output fails the login with a message naming the
+  command. Setting both `password` and `password_command` is a config error;
+  `SYNO_PASSWORD` beats both.
 - A missing file is fine when env supplies the required keys.
 - Validation messages name the key and its env var, e.g.
   `config: host is required (set host in <path> or SYNO_HOST)`. An invalid
@@ -158,9 +165,10 @@ source = "dani-garcia/vaultwarden"
 
 Adapted from unifictl's `setup` module.
 
-- `config init` prompts for host, username, password (hidden input) and
-  whether to accept a self-signed certificate; flags (`--host`, `--username`,
-  `--password`, `--insecure-tls`, `--force`, `--no-check`) and
+- `config init` prompts for host, username, a password command (empty to
+  type the password, hidden input) and whether to accept a self-signed
+  certificate; flags (`--host`, `--username`, `--password` or
+  `--password-command`, `--insecure-tls`, `--force`, `--no-check`) and
   `SYNO_PASSWORD` serve scripts. It writes the file with mode 0600 and then
   runs the check.
 - `config check` walks: config parse and validation, file permissions, DNS,

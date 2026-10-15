@@ -2,7 +2,7 @@
 //! homelab-api/internal/adapters/synology.go.
 
 use std::collections::BTreeSet;
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 use reqwest::blocking::Client;
@@ -16,7 +16,7 @@ use super::types::{
 };
 use super::{DsmApi, backup_missing, container_not_found, docker_missing};
 use crate::cache::Cache;
-use crate::config::Config;
+use crate::config::{Config, Password};
 use crate::error::{Error, Result};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -38,7 +38,9 @@ pub struct DsmClient {
     base_url: String,
     host: String,
     username: String,
-    password: String,
+    password: Password,
+    /// `password` once resolved, so a run asks a password manager only once.
+    resolved_password: OnceLock<String>,
     auth_version: u32,
     http: Client,
     cache: Option<Cache>,
@@ -78,6 +80,8 @@ pub enum AccessError {
     Transport(TransportError),
     /// DSM's login error code.
     Login(i64),
+    /// `password_command` failed; the message names it.
+    Password(String),
     Status(u16),
     /// An HTML page where DSM's JSON was expected: usually the wrong port.
     WebPage,
@@ -89,6 +93,7 @@ impl std::fmt::Display for AccessError {
         match self {
             Self::Transport(e) => write!(f, "{e}"),
             Self::Login(code) => write!(f, "{}", login_message(*code)),
+            Self::Password(m) => write!(f, "{m}"),
             Self::Status(code) => write!(f, "status {code}"),
             Self::WebPage => write!(f, "a web page, not the DSM Web API"),
             Self::Parse(m) => write!(f, "unexpected response: {m}"),
@@ -119,7 +124,7 @@ impl DsmClient {
         base_url: String,
         host: String,
         username: String,
-        password: String,
+        password: Password,
         auth_version: u32,
         insecure_tls: bool,
     ) -> Result<Self> {
@@ -134,6 +139,7 @@ impl DsmClient {
             host,
             username,
             password,
+            resolved_password: OnceLock::new(),
             auth_version,
             http,
             cache: None,
@@ -189,6 +195,7 @@ impl DsmClient {
         let mut sid = self.sid.lock().unwrap_or_else(PoisonError::into_inner);
         let new = self.login_raw().map_err(|e| match e {
             CallError::Code(c) => AccessError::Login(c),
+            CallError::Other(e @ Error::Auth(_)) => AccessError::Password(e.to_string()),
             CallError::Other(e) => AccessError::Parse(e.to_string()),
         })?;
         self.remember(&new);
@@ -255,16 +262,26 @@ impl DsmClient {
                 ))
             })?;
         let version = self.auth_version.to_string();
+        let password = self.password().map_err(CallError::Other)?;
         let params = [
             ("api", "SYNO.API.Auth"),
             ("method", "login"),
             ("version", version.as_str()),
             ("account", self.username.as_str()),
-            ("passwd", self.password.as_str()),
+            ("passwd", password),
             ("format", "sid"),
         ];
         let (_, env) = self.send::<Login>(&path, &params)?;
         data(env).map(|l| l.sid)
+    }
+
+    /// The password, running `password_command` on first use only.
+    fn password(&self) -> Result<&str> {
+        if let Some(p) = self.resolved_password.get() {
+            return Ok(p);
+        }
+        let p = self.password.resolve()?;
+        Ok(self.resolved_password.get_or_init(|| p))
     }
 
     fn remember(&self, sid: &str) {
@@ -622,7 +639,7 @@ mod tests {
             server.base_url(),
             "nas".into(),
             "u".into(),
-            "p".into(),
+            Password::Literal("p".into()),
             6,
             false,
         )
@@ -809,6 +826,70 @@ mod tests {
         assert_eq!(
             e.to_string(),
             "synology login: wrong account or password (error 400)"
+        );
+    }
+
+    /// A client whose password comes from `cmd`.
+    fn with_command(server: &MockServer, cmd: String) -> DsmClient {
+        DsmClient::with_base_url(
+            server.base_url(),
+            "nas".into(),
+            "u".into(),
+            Password::Command(cmd),
+            6,
+            false,
+        )
+        .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn password_command_runs_once_and_only_to_log_in() {
+        let server = MockServer::start();
+        let dir = tempfile::tempdir().unwrap();
+        let runs = dir.path().join("runs");
+        let cmd = format!("echo x >> '{}'; echo p", runs.display());
+        mock_auth(&server);
+        let login = mock_login(&server, "S1");
+        mock_call(&server, "SYNO.Core.System", "info", "S1", code(106));
+        // Both logins (first call and the retry) share one run.
+        with_command(&server, cmd.clone())
+            .system_info()
+            .unwrap_err();
+        login.assert_calls(2);
+        assert_eq!(std::fs::read_to_string(&runs).unwrap(), "x\n");
+
+        let server = MockServer::start();
+        let store = tempfile::tempdir().unwrap();
+        SessionStore::new(store.path()).store("nas", "u", "S1");
+        mock_call(&server, "SYNO.Core.System", "info", "S1", info_ok());
+        with_command(&server, cmd)
+            .with_session_store(SessionStore::new(store.path()))
+            .system_info()
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(&runs).unwrap(), "x\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_password_command_stops_the_login() {
+        let server = MockServer::start();
+        mock_auth(&server);
+        let login = mock_login(&server, "S1");
+        let e = with_command(&server, "exit 1".into())
+            .system_info()
+            .unwrap_err();
+        assert!(matches!(e, Error::Auth(_)), "{e:?}");
+        assert_eq!(
+            e.to_string(),
+            "password_command `exit 1`: exited with status 1"
+        );
+        login.assert_calls(0);
+        assert_eq!(
+            with_command(&server, "exit 1".into()).login_check(),
+            Err(AccessError::Password(
+                "password_command `exit 1`: exited with status 1".into()
+            ))
         );
     }
 
@@ -1099,7 +1180,7 @@ mod tests {
             format!("http://127.0.0.1:{port}"),
             "nas".into(),
             "u".into(),
-            "s3cr3t-pw".into(),
+            Password::Literal("s3cr3t-pw".into()),
             6,
             false,
         )

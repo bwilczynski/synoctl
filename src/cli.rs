@@ -284,8 +284,12 @@ pub struct InitArgs {
     #[arg(long)]
     pub username: Option<String>,
     /// Password for --username; defaults to $SYNO_PASSWORD
-    #[arg(long)]
+    #[arg(long, conflicts_with = "password_command")]
     pub password: Option<String>,
+    /// Shell command printing the password (e.g. `rbw get synoctl`), stored
+    /// instead of the password and run whenever synoctl logs in
+    #[arg(long, value_name = "COMMAND")]
+    pub password_command: Option<String>,
     /// Accept the NAS's self-signed certificate
     #[arg(long)]
     pub insecure_tls: bool,

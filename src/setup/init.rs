@@ -5,7 +5,7 @@ use std::path::Path;
 
 use super::prompt::Prompter;
 use crate::cli::InitArgs;
-use crate::config::{self, FileConfig};
+use crate::config::{self, FileConfig, Password};
 use crate::dsm::client::{DsmClient, TransportError};
 use crate::error::{Error, Result};
 
@@ -44,12 +44,24 @@ pub(crate) fn run_with(
             ask_nonempty(p, "Username")?
         }
     };
-    let password = match args.password.clone().or_else(|| var("SYNO_PASSWORD")) {
-        Some(pw) => pw,
-        None => {
-            require(p, "password", "--password or SYNO_PASSWORD")?;
-            ask_secret(p, "Password")?
-        }
+    let password = match (&args.password_command, &args.password) {
+        (Some(cmd), _) => Password::Command(cmd.clone()),
+        (None, Some(pw)) => Password::Literal(pw.clone()),
+        (None, None) => match var("SYNO_PASSWORD") {
+            Some(pw) => Password::Literal(pw),
+            None => {
+                require(
+                    p,
+                    "password",
+                    "--password, --password-command or SYNO_PASSWORD",
+                )?;
+                ask_password(p)?
+            }
+        },
+    };
+    let (password, password_command) = match password {
+        Password::Literal(pw) => (Some(pw), None),
+        Password::Command(cmd) => (None, Some(cmd)),
     };
     let mut insecure_tls = args.insecure_tls;
     if !insecure_tls && !args.no_check {
@@ -58,7 +70,8 @@ pub(crate) fn run_with(
     let file = FileConfig {
         host: Some(host),
         username: Some(username),
-        password: Some(password),
+        password,
+        password_command,
         insecure_tls: insecure_tls.then_some(true),
         ..Default::default()
     };
@@ -99,6 +112,19 @@ fn ask_nonempty(p: &mut dyn Prompter, label: &str) -> Result<String> {
     }
 }
 
+/// A password manager command, or else the password itself.
+fn ask_password(p: &mut dyn Prompter) -> Result<Password> {
+    let cmd = p.line(
+        "Password command, e.g. `rbw get synoctl` (empty to type the password)",
+        None,
+    )?;
+    if cmd.is_empty() {
+        ask_secret(p, "Password").map(Password::Literal)
+    } else {
+        Ok(Password::Command(cmd))
+    }
+}
+
 fn ask_secret(p: &mut dyn Prompter, label: &str) -> Result<String> {
     loop {
         let answer = p.read_secret(&format!("{label}: "))?;
@@ -115,7 +141,7 @@ fn offer_insecure(host: &str, scheme: &str, p: &mut dyn Prompter) -> Result<bool
         format!("{scheme}://{host}"),
         host.to_string(),
         String::new(),
-        String::new(),
+        Password::Literal(String::new()),
         6,
         false,
     )?
@@ -290,7 +316,7 @@ mod tests {
             no_check: true,
             ..Default::default()
         };
-        let mut p = Script::new(true, &["", "nas.lan:5001", "admin", "", "pw"]);
+        let mut p = Script::new(true, &["", "nas.lan:5001", "admin", "", "", "pw"]);
         run(&args, &target(&dir), &no_env, &mut p).unwrap();
         assert_eq!(
             std::fs::read_to_string(target(&dir)).unwrap(),
@@ -302,9 +328,45 @@ mod tests {
                 "NAS address (host[:port], e.g. 192.168.1.10:5001): ",
                 "NAS address (host[:port], e.g. 192.168.1.10:5001): ",
                 "Username: ",
+                PASSWORD_COMMAND,
                 "Password: ",
                 "Password: "
             ]
         );
+    }
+
+    const PASSWORD_COMMAND: &str =
+        "Password command, e.g. `rbw get synoctl` (empty to type the password): ";
+
+    #[test]
+    fn password_command_is_written_instead_of_a_password() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = InitArgs {
+            host: Some("nas".into()),
+            username: Some("u".into()),
+            password_command: Some("rbw get synoctl".into()),
+            no_check: true,
+            ..Default::default()
+        };
+        let env = |k: &str| (k == "SYNO_PASSWORD").then(|| "secret".to_string());
+        run(&args, &target(&dir), &env, &mut Script::new(false, &[])).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(target(&dir)).unwrap(),
+            "host = \"nas\"\nusername = \"u\"\npassword_command = \"rbw get synoctl\"\n"
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let args = InitArgs {
+            no_check: true,
+            ..Default::default()
+        };
+        let mut p = Script::new(true, &["nas", "u", "bw get password synoctl"]);
+        run(&args, &target(&dir), &no_env, &mut p).unwrap();
+        assert!(
+            std::fs::read_to_string(target(&dir))
+                .unwrap()
+                .ends_with("password_command = \"bw get password synoctl\"\n")
+        );
+        assert_eq!(p.prompts.last().map(String::as_str), Some(PASSWORD_COMMAND));
     }
 }

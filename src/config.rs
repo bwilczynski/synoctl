@@ -18,7 +18,7 @@ pub struct Config {
     /// host[:port]; always reached over https.
     pub host: String,
     pub username: String,
-    pub password: String,
+    pub password: Password,
     pub insecure_tls: bool,
     /// The NAS's time zone, for DSM timestamps that carry no offset.
     pub timezone: TimeZone,
@@ -58,6 +58,71 @@ pub enum SourceType {
     Codeberg,
 }
 
+/// Where the login password comes from.
+#[derive(Clone, PartialEq, Eq)]
+pub enum Password {
+    /// From the config file or `SYNO_PASSWORD`.
+    Literal(String),
+    /// Printed by this shell command (`password_command`), e.g. a password
+    /// manager's CLI. Run only when synoctl has to log in.
+    Command(String),
+}
+
+/// Never shows a literal password.
+impl std::fmt::Debug for Password {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Literal(_) => f.write_str("Literal(****)"),
+            Self::Command(c) => f.debug_tuple("Command").field(c).finish(),
+        }
+    }
+}
+
+impl Password {
+    /// The password: the literal, or the first line the command prints. The
+    /// command gets the terminal's stdin and stderr, so a password manager
+    /// can ask to be unlocked and its errors reach the user.
+    pub fn resolve(&self) -> Result<String> {
+        let cmd = match self {
+            Self::Literal(p) => return Ok(p.clone()),
+            Self::Command(c) => c,
+        };
+        let fail = |m: String| Error::Auth(format!("password_command `{cmd}`: {m}"));
+        let out = shell(cmd)
+            .stdin(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .output()
+            .map_err(|e| fail(format!("cannot run: {e}")))?;
+        if !out.status.success() {
+            return Err(fail(match out.status.code() {
+                Some(code) => format!("exited with status {code}"),
+                None => "killed by a signal".into(),
+            }));
+        }
+        let text =
+            String::from_utf8(out.stdout).map_err(|_| fail("printed invalid UTF-8".into()))?;
+        let line = text.lines().next().unwrap_or_default();
+        if line.is_empty() {
+            return Err(fail("printed nothing".into()));
+        }
+        Ok(line.to_string())
+    }
+}
+
+#[cfg(unix)]
+fn shell(cmd: &str) -> std::process::Command {
+    let mut c = std::process::Command::new("sh");
+    c.arg("-c").arg(cmd);
+    c
+}
+
+#[cfg(not(unix))]
+fn shell(cmd: &str) -> std::process::Command {
+    let mut c = std::process::Command::new("cmd");
+    c.arg("/C").arg(cmd);
+    c
+}
+
 #[derive(Debug)]
 pub struct Loaded {
     pub config: Config,
@@ -75,6 +140,8 @@ pub struct FileConfig {
     pub username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub password: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password_command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub insecure_tls: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -170,8 +237,23 @@ pub fn load(path: &Path, explicit: bool, env: &dyn Fn(&str) -> Option<String>) -
     }
     let username = pick("SYNO_USERNAME", file.username)
         .ok_or_else(|| missing("username", "SYNO_USERNAME", path))?;
-    let password = pick("SYNO_PASSWORD", file.password)
-        .ok_or_else(|| missing("password", "SYNO_PASSWORD", path))?;
+    let password_command = file.password_command.filter(|c| !c.trim().is_empty());
+    if file.password.is_some() && password_command.is_some() {
+        return Err(Error::Config(format!(
+            "{}: set either password or password_command, not both",
+            path.display()
+        )));
+    }
+    let password = match (pick("SYNO_PASSWORD", file.password), password_command) {
+        (Some(p), _) => Password::Literal(p),
+        (None, Some(c)) => Password::Command(c),
+        (None, None) => {
+            return Err(Error::Config(format!(
+                "password is required (set password or password_command in {}, or SYNO_PASSWORD)",
+                path.display()
+            )));
+        }
+    };
 
     let insecure_tls = match var("SYNO_INSECURE_TLS") {
         Some(v) => parse_bool("SYNO_INSECURE_TLS", &v)?,
@@ -392,7 +474,8 @@ mod tests {
         let p = write_file(&dir, MINIMAL);
         let c = load(&p, true, &env_of(&[])).unwrap().config;
         assert_eq!(c.host, "nas.lan:5001");
-        assert_eq!((c.username.as_str(), c.password.as_str()), ("u", "p"));
+        assert_eq!(c.username, "u");
+        assert_eq!(c.password, Password::Literal("p".into()));
         assert_eq!(c.auth_version, 6);
         assert_eq!(c.cache_ttl, Duration::from_secs(15));
         assert!(!c.insecure_tls);
@@ -414,14 +497,10 @@ mod tests {
         ]);
         let c = load(&p, true, &env).unwrap().config;
         assert_eq!(
-            (
-                c.host.as_str(),
-                c.password.as_str(),
-                c.insecure_tls,
-                c.auth_version
-            ),
-            ("b:5001", "q", true, 3)
+            (c.host.as_str(), c.insecure_tls, c.auth_version),
+            ("b:5001", true, 3)
         );
+        assert_eq!(c.password, Password::Literal("q".into()));
         assert_eq!(c.timezone.iana_name(), Some("Europe/Warsaw"));
         assert!(c.cache_ttl.is_zero());
     }
@@ -441,7 +520,9 @@ mod tests {
         let p = write_file(&dir, "host = \"a\"\nusername = \"u\"\n");
         let e = load(&p, true, &env_of(&[])).unwrap_err().to_string();
         assert!(
-            e.contains("password is required") && e.contains("SYNO_PASSWORD"),
+            e.contains("password is required")
+                && e.contains("password_command")
+                && e.contains("SYNO_PASSWORD"),
             "{e}"
         );
         let p = write_file(&dir, "username = \"u\"\npassword = \"p\"\n");
@@ -450,6 +531,65 @@ mod tests {
             e.contains("host is required") && e.contains("SYNO_HOST"),
             "{e}"
         );
+    }
+
+    #[test]
+    fn password_command_is_kept_unrun() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = write_file(
+            &dir,
+            "host = \"a\"\nusername = \"u\"\npassword_command = \"rbw get nas\"\n",
+        );
+        let c = load(&p, true, &env_of(&[])).unwrap().config;
+        assert_eq!(c.password, Password::Command("rbw get nas".into()));
+        let c = load(&p, true, &env_of(&[("SYNO_PASSWORD", "q")]))
+            .unwrap()
+            .config;
+        assert_eq!(c.password, Password::Literal("q".into()));
+    }
+
+    #[test]
+    fn password_and_password_command_conflict() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = write_file(
+            &dir,
+            &format!("{MINIMAL}password_command = \"rbw get nas\"\n"),
+        );
+        let e = load(&p, true, &env_of(&[])).unwrap_err().to_string();
+        assert!(
+            e.ends_with("set either password or password_command, not both"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn literal_password_is_masked_in_debug() {
+        assert_eq!(
+            format!("{:?}", Password::Literal("secret".into())),
+            "Literal(****)"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn password_command_prints_the_first_line() {
+        let pw = Password::Command("printf 'hunter2\\nmore\\n'".into());
+        assert_eq!(pw.resolve().unwrap(), "hunter2");
+        let pw = Password::Command("printf 'crlf\\r\\n'".into());
+        assert_eq!(pw.resolve().unwrap(), "crlf");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn password_command_failures_name_the_command() {
+        let e = Password::Command("exit 3".into()).resolve().unwrap_err();
+        assert!(matches!(e, Error::Auth(_)));
+        assert_eq!(
+            e.to_string(),
+            "password_command `exit 3`: exited with status 3"
+        );
+        let e = Password::Command("true".into()).resolve().unwrap_err();
+        assert_eq!(e.to_string(), "password_command `true`: printed nothing");
     }
 
     #[test]

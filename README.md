@@ -41,8 +41,8 @@ cargo install --path .
 
 ## Configure
 
-Run the guided setup; it asks for the NAS address, account and password,
-offers to accept DSM's self-signed certificate, writes the config file
+Run the guided setup; it asks for the NAS address, account and password (or
+a command that prints it, see below), offers to accept DSM's self-signed certificate, writes the config file
 readable only by you, and checks that everything works:
 
 ```
@@ -54,10 +54,27 @@ synoctl does not support. DSM shows storage, Hyper Backup and Container
 Manager only to administrators, so the account most likely needs to be in the
 administrators group; `config check` tells you what it can reach.
 
-For scripts, pass everything as flags (`--host`, `--username`, `--password`,
-`--insecure-tls`); the password can come from `SYNO_PASSWORD` instead, which
-keeps it out of shell history. `--force` overwrites an existing file;
+For scripts, pass everything as flags (`--host`, `--username`, `--password`
+or `--password-command`, `--insecure-tls`); the password can come from
+`SYNO_PASSWORD` instead, which keeps it out of shell history. `--force` overwrites an existing file;
 `--no-check` skips contacting the NAS.
+
+### Password from a password manager
+
+To keep the password out of the config file, set `password_command` instead
+of `password`: a shell command that prints the password on its first line.
+synoctl runs it only when it has to log in, which is rarely, since it keeps
+the DSM session between runs. The command shares your terminal, so a password
+manager can ask to be unlocked. For Bitwarden:
+
+```toml
+password_command = "rbw get synoctl"            # rbw: unlocked by its agent
+# password_command = "bw get password synoctl"  # official CLI; needs BW_SESSION
+```
+
+`bws secret get <id> | jq -r .value` (Bitwarden Secrets Manager), `pass show
+nas/synoctl` and `op read op://…` work the same way. `SYNO_PASSWORD` still
+takes precedence over either key.
 
 When something stops working, `synoctl config check` walks through the
 config, file permissions, DNS, TCP, TLS, the DSM Web API, login, and which
@@ -71,7 +88,8 @@ The file lives at `~/.config/synoctl/config.toml` (or
 ```toml
 host = "192.168.1.10:5001"     # host[:port]; always https (DSM's HTTPS port is 5001)
 username = "synoctl"
-password = "…"
+password = "…"                 # or:
+# password_command = "rbw get synoctl"   # prints the password; run at login
 # insecure_tls = true          # DSM ships a self-signed certificate
 # timezone = "Europe/Warsaw"   # the NAS's zone, for backup times; default: yours
 # auth_version = 6             # SYNO.API.Auth login version; 3 for old DSM
