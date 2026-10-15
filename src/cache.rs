@@ -9,6 +9,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
+use sha2::{Digest, Sha256};
+
 pub struct Cache {
     dir: PathBuf,
     ttl: Duration,
@@ -64,18 +66,13 @@ impl Cache {
     }
 }
 
-/// Encodes `key` as a file name: `[A-Za-z0-9.-]` kept, every other byte
-/// (including `_` itself) becomes `_XX`, so distinct keys never collide.
+/// `key` as a file name: its SHA-256 in hex, so any key fits the
+/// filesystem's 255-byte name limit and distinct keys never collide.
 fn file_name(key: &str) -> String {
-    let mut out = String::with_capacity(key.len());
-    for b in key.bytes() {
-        if b.is_ascii_alphanumeric() || b == b'.' || b == b'-' {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("_{b:02x}"));
-        }
-    }
-    out
+    Sha256::digest(key.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 #[cfg(test)]
@@ -147,11 +144,18 @@ mod tests {
 
     #[test]
     fn file_names_are_safe_and_distinct() {
-        assert_eq!(
-            file_name("https://h:8443/a_b?x=1&y"),
-            "https_3a_2f_2fh_3a8443_2fa_5fb_3fx_3d1_26y"
-        );
+        let name = file_name("https://h:8443/a_b?x=1&y");
+        assert!(name.bytes().all(|b| b.is_ascii_hexdigit()), "{name}");
         assert_ne!(file_name("a/b"), file_name("a_b"));
+    }
+
+    #[test]
+    fn long_keys_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = cache(&dir, 60, true);
+        let key = format!("nas/SYNO.Backup.Task.status.v1?{}", "task_id=3&".repeat(40));
+        c.put(&key, "{}");
+        assert_eq!(c.get(&key).as_deref(), Some("{}"));
     }
 
     #[cfg(unix)]
