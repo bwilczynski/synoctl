@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/bwilczynski/synoctl/compare/v0.1.0...v0.1.1) - 2026-10-16
+
+### Added
+
+- read the password from a password_command
+
 ## [0.1.0](https://github.com/bwilczynski/synoctl/releases/tag/v0.1.0) - 2026-10-15
 
 ### Added
