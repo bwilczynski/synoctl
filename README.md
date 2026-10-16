@@ -65,16 +65,17 @@ To keep the password out of the config file, set `password_command` instead
 of `password`: a shell command that prints the password on its first line.
 synoctl runs it only when it has to log in, which is rarely, since it keeps
 the DSM session between runs. The command shares your terminal, so a password
-manager can ask to be unlocked. For Bitwarden:
+manager can ask to be unlocked. For [pass](https://www.passwordstore.org/):
 
 ```toml
-password_command = "rbw get synoctl"            # rbw: unlocked by its agent
-# password_command = "bw get password synoctl"  # official CLI; needs BW_SESSION
+password_command = "pass show nas/synoctl"
 ```
 
-`bws secret get <id> | jq -r .value` (Bitwarden Secrets Manager), `pass show
-nas/synoctl` and `op read op://…` work the same way. `SYNO_PASSWORD` still
-takes precedence over either key.
+pass keeps the password on an entry's first line, so any lines after it (a
+username, notes) are ignored. If gpg-agent asks for the passphrase with a
+terminal pinentry, export `GPG_TTY=$(tty)` in your shell. `rbw get synoctl`,
+`bw get password synoctl` (needs `BW_SESSION`) and `op read op://…` work the
+same way. `SYNO_PASSWORD` still takes precedence over either key.
 
 When something stops working, `synoctl config check` walks through the
 config, file permissions, DNS, TCP, TLS, the DSM Web API, login, and which
@@ -89,7 +90,7 @@ The file lives at `~/.config/synoctl/config.toml` (or
 host = "192.168.1.10:5001"     # host[:port]; always https (DSM's HTTPS port is 5001)
 username = "synoctl"
 password = "…"                 # or:
-# password_command = "rbw get synoctl"   # prints the password; run at login
+# password_command = "pass show nas/synoctl"   # prints the password; run at login
 # insecure_tls = true          # DSM ships a self-signed certificate
 # timezone = "Europe/Warsaw"   # the NAS's zone, for backup times; default: yours
 # auth_version = 6             # SYNO.API.Auth login version; 3 for old DSM

@@ -286,7 +286,7 @@ pub struct InitArgs {
     /// Password for --username; defaults to $SYNO_PASSWORD
     #[arg(long, conflicts_with = "password_command")]
     pub password: Option<String>,
-    /// Shell command printing the password (e.g. `rbw get synoctl`), stored
+    /// Shell command printing the password (e.g. `pass show nas/synoctl`), stored
     /// instead of the password and run whenever synoctl logs in
     #[arg(long, value_name = "COMMAND")]
     pub password_command: Option<String>,

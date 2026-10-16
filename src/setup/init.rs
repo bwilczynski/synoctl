@@ -115,7 +115,7 @@ fn ask_nonempty(p: &mut dyn Prompter, label: &str) -> Result<String> {
 /// A password manager command, or else the password itself.
 fn ask_password(p: &mut dyn Prompter) -> Result<Password> {
     let cmd = p.line(
-        "Password command, e.g. `rbw get synoctl` (empty to type the password)",
+        "Password command, e.g. `pass show nas/synoctl` (empty to type the password)",
         None,
     )?;
     if cmd.is_empty() {
@@ -336,7 +336,7 @@ mod tests {
     }
 
     const PASSWORD_COMMAND: &str =
-        "Password command, e.g. `rbw get synoctl` (empty to type the password): ";
+        "Password command, e.g. `pass show nas/synoctl` (empty to type the password): ";
 
     #[test]
     fn password_command_is_written_instead_of_a_password() {
@@ -344,7 +344,7 @@ mod tests {
         let args = InitArgs {
             host: Some("nas".into()),
             username: Some("u".into()),
-            password_command: Some("rbw get synoctl".into()),
+            password_command: Some("pass show nas/synoctl".into()),
             no_check: true,
             ..Default::default()
         };
@@ -352,7 +352,7 @@ mod tests {
         run(&args, &target(&dir), &env, &mut Script::new(false, &[])).unwrap();
         assert_eq!(
             std::fs::read_to_string(target(&dir)).unwrap(),
-            "host = \"nas\"\nusername = \"u\"\npassword_command = \"rbw get synoctl\"\n"
+            "host = \"nas\"\nusername = \"u\"\npassword_command = \"pass show nas/synoctl\"\n"
         );
 
         let dir = tempfile::tempdir().unwrap();
@@ -360,12 +360,12 @@ mod tests {
             no_check: true,
             ..Default::default()
         };
-        let mut p = Script::new(true, &["nas", "u", "bw get password synoctl"]);
+        let mut p = Script::new(true, &["nas", "u", "pass show synoctl"]);
         run(&args, &target(&dir), &no_env, &mut p).unwrap();
         assert!(
             std::fs::read_to_string(target(&dir))
                 .unwrap()
-                .ends_with("password_command = \"bw get password synoctl\"\n")
+                .ends_with("password_command = \"pass show synoctl\"\n")
         );
         assert_eq!(p.prompts.last().map(String::as_str), Some(PASSWORD_COMMAND));
     }
