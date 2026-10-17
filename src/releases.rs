@@ -14,8 +14,6 @@ use crate::config::SourceType;
 use crate::error::{Error, Result};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
-/// Fetches at a time.
-const PARALLEL: usize = 8;
 const GITHUB_API: &str = "https://api.github.com";
 const CODEBERG_API: &str = "https://codeberg.org/api/v1";
 
@@ -59,8 +57,8 @@ impl Repo {
         }
     }
 
-    /// `github:owner/repo`, the key in `releases.json`.
-    fn key(&self) -> String {
+    /// `github:owner/repo`, the key in `releases.json` and `sources.json`.
+    pub(crate) fn key(&self) -> String {
         let host = match self.host {
             SourceType::Github => "github",
             SourceType::Codeberg => "codeberg",
@@ -68,7 +66,7 @@ impl Repo {
         format!("{host}:{}", self.path)
     }
 
-    fn from_key(key: &str) -> Option<Self> {
+    pub(crate) fn from_key(key: &str) -> Option<Self> {
         let (host, path) = key.split_once(':')?;
         match host {
             "github" => Some(Self::github(path)),
@@ -206,23 +204,7 @@ impl Releases for HttpReleases {
         let mut warnings = Vec::new();
         if force || !fresh || !covered {
             let list: Vec<&Repo> = repos.iter().collect();
-            let results: Vec<(&Repo, std::result::Result<Release, String>)> = list
-                .chunks(PARALLEL)
-                .flat_map(|chunk| {
-                    std::thread::scope(|s| {
-                        let handles: Vec<_> = chunk
-                            .iter()
-                            .map(|r| (*r, s.spawn(|| self.fetch(r))))
-                            .collect();
-                        handles
-                            .into_iter()
-                            .map(|(r, h)| {
-                                (r, h.join().unwrap_or_else(|p| std::panic::resume_unwind(p)))
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                })
-                .collect();
+            let results = crate::parallel::map(&list, |r| (*r, self.fetch(r)));
             cache.fetched_at = Some(Timestamp::now());
             cache.checked = repos.iter().map(Repo::key).collect();
             for (repo, result) in results {

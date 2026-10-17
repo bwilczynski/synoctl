@@ -1,7 +1,7 @@
 //! `docker updates`, from homelab-api/internal/system/updates_service.go:
 //! running image tags against the latest upstream release.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use jiff::Timestamp;
 
@@ -10,6 +10,8 @@ use crate::error::{Error, Result};
 use crate::model::docker::{Update, UpdateDetail, UpdateList, UpdateStatus};
 use crate::releases::Repo;
 use crate::service::{Service, Warned};
+
+use super::sources::{SOURCE_LABEL, SourceCache, label_repo};
 
 /// A tracked container before its release is known.
 struct Candidate {
@@ -57,32 +59,42 @@ impl Service {
     fn updates(&self, force: bool, now: Timestamp) -> Result<Warned<Vec<UpdateDetail>>> {
         let containers = self.api.containers()?.containers;
         let mut warnings = Vec::new();
-        let mut warned = BTreeSet::new();
-        let candidates: Vec<Candidate> = containers
+        let tracked: Vec<Tracked> = containers
             .iter()
             .filter_map(|c| {
                 let (image, tag) = split_image_tag(&c.image);
-                if !is_version_tag(tag) {
-                    return None;
-                }
-                let repo = self.resolve(image);
-                if repo.is_none() && warned.insert(image.to_string()) {
+                is_version_tag(tag).then_some(Tracked {
+                    id: &c.id,
+                    name: &c.name,
+                    image,
+                    tag,
+                })
+            })
+            .collect();
+        let labels = self.label_sources(&tracked, force, &mut warnings);
+        let mut warned = BTreeSet::new();
+        let candidates: Vec<Candidate> = tracked
+            .into_iter()
+            .map(|t| {
+                let label = labels.get(t.id).cloned().flatten();
+                let repo = self.resolve(t.image, label);
+                if repo.is_none() && warned.insert(t.image) {
                     let hint = if self.sources_hint.is_empty() {
                         "the config file"
                     } else {
                         self.sources_hint.as_str()
                     };
                     warnings.push(format!(
-                        "no release source for {image} (container {}); add it under [[updates.sources]] in {hint}",
-                        c.name
+                        "no release source for {} (container {}); add it under [[updates.sources]] in {hint}",
+                        t.image, t.name
                     ));
                 }
-                Some(Candidate {
-                    name: c.name.clone(),
-                    image: image.to_string(),
-                    tag: tag.to_string(),
+                Candidate {
+                    name: t.name.to_string(),
+                    image: t.image.to_string(),
+                    tag: t.tag.to_string(),
                     repo,
-                })
+                }
             })
             .collect();
         let repos: BTreeSet<Repo> = candidates.iter().filter_map(|c| c.repo.clone()).collect();
@@ -130,13 +142,81 @@ impl Service {
         Ok(Warned { data, warnings })
     }
 
-    /// `updates.sources` first, then a `ghcr.io/owner/repo` image's own repo.
-    fn resolve(&self, image: &str) -> Option<Repo> {
-        if let Some(s) = self.sources.iter().find(|s| s.image == image) {
-            return Some(Repo::new(s.r#type, &s.source));
-        }
-        ghcr_repo(image).map(|p| Repo::new(SourceType::Github, &p))
+    /// `updates.sources` first, then the image's source label, then a
+    /// `ghcr.io/owner/repo` image's own repo.
+    fn resolve(&self, image: &str, label: Option<Repo>) -> Option<Repo> {
+        self.configured(image)
+            .or(label)
+            .or_else(|| ghcr_repo(image).map(|p| Repo::new(SourceType::Github, &p)))
     }
+
+    fn configured(&self, image: &str) -> Option<Repo> {
+        self.sources
+            .iter()
+            .find(|s| s.image == image)
+            .map(|s| Repo::new(s.r#type, &s.source))
+    }
+
+    /// The source label of each tracked container whose image has no
+    /// `updates.sources` entry, by container ID: from `sources.json`, else
+    /// read from DSM, those reads in parallel. Containers are resolved one
+    /// by one, since two running the same tag can still differ: one may be
+    /// recreated from a republished tag or with other labels. `force` reads
+    /// every container again. Containers whose read failed are absent.
+    fn label_sources(
+        &self,
+        tracked: &[Tracked],
+        force: bool,
+        warnings: &mut Vec<String>,
+    ) -> BTreeMap<String, Option<Repo>> {
+        let dir = self.cache_dir.as_deref();
+        let mut cache = if force {
+            SourceCache::default()
+        } else {
+            SourceCache::read(dir)
+        };
+        let mut found = BTreeMap::new();
+        let mut reads: Vec<&Tracked> = Vec::new();
+        for t in tracked
+            .iter()
+            .filter(|t| self.configured(t.image).is_none())
+        {
+            match cache.get(t.id) {
+                Some(repo) => {
+                    found.insert(t.id.to_string(), repo);
+                }
+                None => reads.push(t),
+            }
+        }
+        let results = crate::parallel::map(&reads, |t| self.api.container(t.name));
+        let read_any = !reads.is_empty();
+        for (t, result) in reads.into_iter().zip(results) {
+            match result {
+                Ok(d) => {
+                    let label = d.details.config.labels.get(SOURCE_LABEL);
+                    let repo = label.and_then(|u| label_repo(u));
+                    cache.insert(t.id, repo.as_ref());
+                    found.insert(t.id.to_string(), repo);
+                }
+                // Removed since the list; read next time it is listed.
+                Err(Error::NotFound(_)) => {}
+                Err(e) => warnings.push(format!("labels of container {}: {e}", t.name)),
+            }
+        }
+        let ids: Vec<&str> = tracked.iter().map(|t| t.id).collect();
+        if cache.retain(&ids) || read_any || force {
+            cache.write(dir);
+        }
+        found
+    }
+}
+
+/// A container with a version tag, as listed.
+struct Tracked<'a> {
+    id: &'a str,
+    name: &'a str,
+    image: &'a str,
+    tag: &'a str,
 }
 
 /// `v1.2.3` and `1.2.3` are the same version.
@@ -286,6 +366,209 @@ mod tests {
             [
                 "no release source for prom/prometheus (container prometheus); add it under [[updates.sources]] in cfg.toml"
             ]
+        );
+    }
+
+    /// Fixtures where `immich_server`'s image says it is built from `url`.
+    fn labelled(url: &str) -> crate::dsm::fixtures::FixtureApi {
+        let mut api = fixtures();
+        api.details
+            .get_mut("immich_server")
+            .unwrap()
+            .details
+            .config
+            .labels
+            .insert(super::SOURCE_LABEL.into(), url.into());
+        api
+    }
+
+    /// `immich-app/immich` is ahead of the `immich-server` repo the image
+    /// name points at, so the status says which one was used.
+    fn monorepo_releases() -> FixtureReleases {
+        FixtureReleases::of([
+            rel("immich-app/immich", "v2.7.0"),
+            rel("immich-app/immich-server", "v2.6.3"),
+        ])
+    }
+
+    #[test]
+    fn source_label_wins_over_ghcr_name() {
+        let s = svc(labelled("https://github.com/immich-app/immich")).with_updates(
+            Box::new(monorepo_releases()),
+            vec![],
+            String::new(),
+        );
+        let d = s.get_update("immich_server", now()).unwrap().data;
+        assert_eq!(d.source, "https://github.com/immich-app/immich");
+        assert_eq!(d.update.status, UpdateStatus::UpdateAvailable);
+    }
+
+    #[test]
+    fn configured_source_wins_over_label() {
+        let src = SourceConfig {
+            image: "ghcr.io/immich-app/immich-server".into(),
+            source: "immich-app/immich-server".into(),
+            r#type: SourceType::Github,
+        };
+        let s = svc(labelled("https://github.com/immich-app/immich")).with_updates(
+            Box::new(monorepo_releases()),
+            vec![src],
+            String::new(),
+        );
+        let d = s.get_update("immich_server", now()).unwrap().data;
+        assert_eq!(d.source, "https://github.com/immich-app/immich-server");
+    }
+
+    #[test]
+    fn unsupported_label_host_falls_back_to_ghcr_name() {
+        let s = svc(labelled("https://gitlab.com/immich-app/immich")).with_updates(
+            Box::new(monorepo_releases()),
+            vec![],
+            String::new(),
+        );
+        let d = s.get_update("immich_server", now()).unwrap().data;
+        assert_eq!(d.source, "https://github.com/immich-app/immich-server");
+    }
+
+    const IMMICH_SERVER_ID: &str =
+        "09492d85a64c9bfb40fbf13ebd1ba45ca2bb148ac91e030fb52bb2529b892984";
+
+    fn cached_service(api: crate::dsm::fixtures::FixtureApi, dir: &tempfile::TempDir) -> Service {
+        svc(api)
+            .with_updates(Box::new(monorepo_releases()), vec![], String::new())
+            .with_cache_dir(dir.path().into())
+    }
+
+    #[test]
+    fn source_labels_are_cached_per_container() {
+        let dir = tempfile::tempdir().unwrap();
+        cached_service(labelled("https://github.com/immich-app/immich"), &dir)
+            .list_updates(None, false, now())
+            .unwrap();
+        // The container's details are gone, so only the cache can say.
+        let mut api = fixtures();
+        api.details.clear();
+        let d = cached_service(api, &dir)
+            .get_update("immich_server", now())
+            .unwrap()
+            .data;
+        assert_eq!(d.source, "https://github.com/immich-app/immich");
+    }
+
+    #[test]
+    fn a_recreated_container_is_read_again() {
+        let dir = tempfile::tempdir().unwrap();
+        cached_service(labelled("https://github.com/immich-app/immich"), &dir)
+            .list_updates(None, false, now())
+            .unwrap();
+        let mut api = labelled("https://github.com/immich-app/immich-server");
+        api.containers.as_mut().unwrap().containers[0].id = "recreated".into();
+        let d = cached_service(api, &dir)
+            .get_update("immich_server", now())
+            .unwrap()
+            .data;
+        assert_eq!(d.source, "https://github.com/immich-app/immich-server");
+    }
+
+    #[test]
+    fn a_cached_sibling_does_not_mask_a_new_container() {
+        let dir = tempfile::tempdir().unwrap();
+        let only_server = |mut api: crate::dsm::fixtures::FixtureApi| {
+            api.containers
+                .as_mut()
+                .unwrap()
+                .containers
+                .retain(|c| c.name == "immich_server");
+            api
+        };
+        cached_service(
+            only_server(labelled("https://github.com/immich-app/immich")),
+            &dir,
+        )
+        .list_updates(None, false, now())
+        .unwrap();
+        // A second container on the same tag, created with another label.
+        let mut api = only_server(labelled("https://github.com/immich-app/immich"));
+        let list = &mut api.containers.as_mut().unwrap().containers;
+        let mut sibling = list[0].clone();
+        sibling.id = "sibling".into();
+        sibling.name = "immich_server_2".into();
+        list.push(sibling);
+        let mut detail = api.details["immich_server"].clone();
+        detail.details.config.labels.insert(
+            super::SOURCE_LABEL.into(),
+            "https://github.com/immich-app/immich-server".into(),
+        );
+        api.details.insert("immich_server_2".into(), detail);
+        let s = cached_service(api, &dir);
+        let source = |name| s.get_update(name, now()).unwrap().data.source;
+        assert_eq!(
+            source("immich_server"),
+            "https://github.com/immich-app/immich"
+        );
+        assert_eq!(
+            source("immich_server_2"),
+            "https://github.com/immich-app/immich-server"
+        );
+    }
+
+    #[test]
+    fn force_reads_labels_again() {
+        let dir = tempfile::tempdir().unwrap();
+        cached_service(labelled("https://github.com/immich-app/immich"), &dir)
+            .list_updates(None, false, now())
+            .unwrap();
+        let w = cached_service(
+            labelled("https://github.com/immich-app/immich-server"),
+            &dir,
+        )
+        .list_updates(None, true, now())
+        .unwrap();
+        let d = w
+            .data
+            .items
+            .iter()
+            .find(|u| u.id == "immich_server")
+            .unwrap();
+        assert_eq!(d.status, UpdateStatus::UpToDate);
+    }
+
+    #[test]
+    fn removed_containers_drop_out_of_the_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut api = labelled("https://github.com/immich-app/immich");
+        api.containers
+            .as_mut()
+            .unwrap()
+            .containers
+            .retain(|c| c.name == "immich_server");
+        cached_service(api, &dir)
+            .list_updates(None, false, now())
+            .unwrap();
+        let cached = || SourceCache::read(Some(dir.path())).get(IMMICH_SERVER_ID);
+        assert!(cached().is_some());
+        // Nothing to read on the second run, so only pruning writes.
+        let mut api = fixtures();
+        api.containers.as_mut().unwrap().containers.clear();
+        cached_service(api, &dir)
+            .list_updates(None, false, now())
+            .unwrap();
+        assert_eq!(cached(), None);
+    }
+
+    #[test]
+    fn failed_label_read_warns_and_falls_back() {
+        let mut api = labelled("https://github.com/immich-app/immich");
+        api.fail_only = vec!["container"];
+        let s = svc(api).with_updates(Box::new(monorepo_releases()), vec![], String::new());
+        let w = s.get_update("immich_server", now()).unwrap();
+        assert_eq!(w.data.source, "https://github.com/immich-app/immich-server");
+        assert!(
+            w.warnings
+                .iter()
+                .any(|m| m.starts_with("labels of container immich_server: ")),
+            "{:?}",
+            w.warnings
         );
     }
 

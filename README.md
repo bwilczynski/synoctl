@@ -98,9 +98,9 @@ password = "…"                 # or:
 
 [updates]
 # check_interval = "1h"        # how long release lookups are reused
-[[updates.sources]]
-image = "vaultwarden/server"   # image without tag
-source = "dani-garcia/vaultwarden"
+[[updates.sources]]               # only for images without a source label
+image = "grafana/loki"         # image without tag
+source = "grafana/loki"
 # type = "codeberg"            # default: github
 ```
 
@@ -166,10 +166,21 @@ installed.
 ### Docker updates
 
 `synoctl docker updates` compares each container's image tag with the latest
-release of its source project. `ghcr.io/<owner>/<repo>` images find their
-GitHub repository on their own; others need an `[[updates.sources]]` entry,
-and synoctl names the ones that lack it. Containers on `latest` or a digest
-are not tracked.
+release of its source project, found in this order:
+
+1. an `[[updates.sources]]` entry;
+2. the image's `org.opencontainers.image.source` label, when it points at
+   github.com or codeberg.org;
+3. for `ghcr.io/<owner>/<repo>` images, that GitHub repository.
+
+Most images carry the label, so few need an entry; synoctl names the ones that
+do. Containers on `latest` or a digest are not tracked.
+
+DSM shows labels only in a container's details, so synoctl reads each
+container's, eight at a time, and keeps what they say in
+`~/.cache/synoctl/sources.json` by container ID. A container is only read
+again once it is recreated, as pulling a new image does, or on
+`docker updates check`.
 
 Release lookups are kept in `~/.cache/synoctl/releases.json` for
 `check_interval` (an hour by default); `docker updates check` looks again

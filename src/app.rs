@@ -224,11 +224,13 @@ pub(crate) fn nas_service(
         cfg.updates.check_interval,
         env("GITHUB_TOKEN"),
     )?;
-    let svc = Service::new(Box::new(client), cfg.timezone.clone()).with_updates(
-        Box::new(releases),
-        cfg.updates.sources.clone(),
-        path.display().to_string(),
-    );
+    let svc = Service::new(Box::new(client), cfg.timezone.clone())
+        .with_updates(
+            Box::new(releases),
+            cfg.updates.sources.clone(),
+            path.display().to_string(),
+        )
+        .with_cache_dir(cache_dir);
     Ok((svc, loaded.warnings))
 }
 
