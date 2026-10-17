@@ -107,14 +107,14 @@ fn steps(
     scheme: &str,
 ) -> Option<()> {
     let exists = path.is_file();
-    let cfg = match config::load(path, explicit, env) {
+    let (cfg, secret_in_file) = match config::load(path, explicit, env) {
         Ok(loaded) => {
             checks.push(Check::new(
                 "config",
                 Status::Pass,
                 config_detail(path, exists, env),
             ));
-            loaded.config
+            (loaded.config, loaded.secret_in_file)
         }
         Err(e) => {
             let mut check = Check::new("config", Status::Fail, e.to_string());
@@ -125,7 +125,7 @@ fn steps(
             return None;
         }
     };
-    checks.push(permissions(path, exists));
+    checks.push(permissions(path, exists, secret_in_file));
 
     let (host, port) = probe::split_host_port(&cfg.host);
     let addrs = gate(
@@ -195,7 +195,7 @@ fn config_detail(path: &Path, exists: bool, env: &dyn Fn(&str) -> Option<String>
     detail
 }
 
-fn permissions(path: &Path, exists: bool) -> Check {
+fn permissions(path: &Path, exists: bool, secret_in_file: bool) -> Check {
     if !exists {
         return Check::new("permissions", Status::Skip, "no config file");
     }
@@ -204,6 +204,11 @@ fn permissions(path: &Path, exists: bool) -> Check {
         Some(mode) if mode & 0o077 == 0 => {
             Check::new("permissions", Status::Pass, format!("{mode:04o}"))
         }
+        Some(mode) if !secret_in_file => Check::new(
+            "permissions",
+            Status::Pass,
+            format!("{mode:04o}; no secret in the file"),
+        ),
         Some(mode) => Check::new(
             "permissions",
             Status::Warn,
@@ -405,6 +410,39 @@ mod tests {
             check(&r, "packages").detail,
             "Container Manager: installed, Hyper Backup: not installed"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn readable_file_with_a_password_warns() {
+        use std::os::unix::fs::PermissionsExt;
+        let server = MockServer::start();
+        mock_api_info(&server, &["SYNO.API.Auth"]);
+        mock_login(&server, json!({"success": true, "data": {"sid": "S"}}));
+        let dir = tempfile::tempdir().unwrap();
+        let p = cfg(&dir, &server, "");
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let r = run_with(&p, false, &no_env, "http");
+        let perms = check(&r, "permissions");
+        assert_eq!(perms.status, Warn);
+        assert_eq!(perms.hint, Some(format!("chmod 600 {}", p.display())));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn readable_file_without_a_secret_passes_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let p = write_cfg(
+            &dir,
+            "host = \"127.0.0.1:9\"\nusername = \"u\"\npassword_command = \"pass show nas\"\n",
+        );
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let r = run_with(&p, false, &no_env, "http");
+        let perms = check(&r, "permissions");
+        assert_eq!(perms.status, Pass);
+        assert_eq!(perms.detail, "0644; no secret in the file");
+        assert_eq!(perms.hint, None);
     }
 
     #[test]
