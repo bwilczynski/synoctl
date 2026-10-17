@@ -1,8 +1,10 @@
 //! Release sources read from image labels, so most images need no
 //! `[[updates.sources]]` entry. DSM's image calls carry no labels, but
 //! Docker copies them onto the container, so they come from
-//! `SYNO.Docker.Container get`. An image's labels only change with its tag,
-//! so each `image:tag` is looked up once and kept in `sources.json`.
+//! `SYNO.Docker.Container get`. A container's labels are fixed for its
+//! lifetime, and pulling a new image or changing labels recreates it under
+//! a new ID, so each container is read once and kept in `sources.json` by
+//! ID.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -35,12 +37,12 @@ pub(crate) fn label_repo(url: &str) -> Option<Repo> {
     }
 }
 
-/// `sources.json`: what each `image:tag`'s label says, `None` when it names
-/// no repo synoctl can query.
+/// `sources.json`: what each container's source label says, by container
+/// ID; `None` when it names no repo synoctl can query.
 #[derive(Default, Serialize, Deserialize)]
 pub(crate) struct SourceCache {
     #[serde(default)]
-    images: BTreeMap<String, Option<String>>,
+    containers: BTreeMap<String, Option<String>>,
 }
 
 impl SourceCache {
@@ -51,20 +53,23 @@ impl SourceCache {
             .unwrap_or_default()
     }
 
-    /// `Some` when `image_ref` was looked up before.
-    pub(crate) fn get(&self, image_ref: &str) -> Option<Option<Repo>> {
-        self.images
-            .get(image_ref)
+    /// `Some` when container `id` was read before.
+    pub(crate) fn get(&self, id: &str) -> Option<Option<Repo>> {
+        self.containers
+            .get(id)
             .map(|k| k.as_deref().and_then(Repo::from_key))
     }
 
-    pub(crate) fn insert(&mut self, image_ref: String, repo: Option<&Repo>) {
-        self.images.insert(image_ref, repo.map(Repo::key));
+    pub(crate) fn insert(&mut self, id: &str, repo: Option<&Repo>) {
+        self.containers.insert(id.to_string(), repo.map(Repo::key));
     }
 
-    /// Keeps only `image_refs`, so pulled-over tags drop out.
-    pub(crate) fn retain(&mut self, image_refs: &[String]) {
-        self.images.retain(|k, _| image_refs.contains(k));
+    /// Keeps only containers in `ids`, so removed and recreated ones drop
+    /// out; true when any did.
+    pub(crate) fn retain(&mut self, ids: &[&str]) -> bool {
+        let before = self.containers.len();
+        self.containers.retain(|k, _| ids.contains(&k.as_str()));
+        self.containers.len() != before
     }
 
     pub(crate) fn write(&self, dir: Option<&Path>) {
@@ -113,20 +118,15 @@ mod tests {
     fn round_trips_through_the_file() {
         let dir = tempfile::tempdir().unwrap();
         let mut c = SourceCache::default();
-        c.insert(
-            "grafana/grafana:13.0.1".into(),
-            Some(&Repo::github("grafana/grafana")),
-        );
-        c.insert("grafana/loki:3.7.1".into(), None);
-        c.insert("old/image:1".into(), None);
-        c.retain(&["grafana/grafana:13.0.1".into(), "grafana/loki:3.7.1".into()]);
+        c.insert("a1", Some(&Repo::github("grafana/grafana")));
+        c.insert("b2", None);
+        c.insert("gone", None);
+        assert!(c.retain(&["a1", "b2"]));
+        assert!(!c.retain(&["a1", "b2"]));
         c.write(Some(dir.path()));
         let c = SourceCache::read(Some(dir.path()));
-        assert_eq!(
-            c.get("grafana/grafana:13.0.1"),
-            Some(Some(Repo::github("grafana/grafana")))
-        );
-        assert_eq!(c.get("grafana/loki:3.7.1"), Some(None));
-        assert_eq!(c.get("old/image:1"), None);
+        assert_eq!(c.get("a1"), Some(Some(Repo::github("grafana/grafana"))));
+        assert_eq!(c.get("b2"), Some(None));
+        assert_eq!(c.get("gone"), None);
     }
 }

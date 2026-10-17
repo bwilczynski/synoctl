@@ -64,13 +64,14 @@ impl Service {
             .filter_map(|c| {
                 let (image, tag) = split_image_tag(&c.image);
                 is_version_tag(tag).then_some(Tracked {
+                    id: &c.id,
                     name: &c.name,
                     image,
                     tag,
                 })
             })
             .collect();
-        let labels = self.label_sources(&tracked, &mut warnings);
+        let labels = self.label_sources(&tracked, force, &mut warnings);
         let mut warned = BTreeSet::new();
         let candidates: Vec<Candidate> = tracked
             .into_iter()
@@ -157,59 +158,72 @@ impl Service {
     }
 
     /// The source label of each tracked image without an `updates.sources`
-    /// entry, by `image:tag`: from `sources.json`, else read from one of its
-    /// containers, those reads in parallel. Images whose read failed are
-    /// absent.
+    /// entry, by `image:tag`: from `sources.json` when one of its containers
+    /// was read before, else read from one of them, those reads in
+    /// parallel. `force` reads every image again. Images whose read failed
+    /// are absent.
     fn label_sources(
         &self,
         tracked: &[Tracked],
+        force: bool,
         warnings: &mut Vec<String>,
     ) -> BTreeMap<String, Option<Repo>> {
         let dir = self.cache_dir.as_deref();
-        let mut cache = SourceCache::read(dir);
-        let mut refs: Vec<String> = Vec::new();
-        let mut reads: Vec<(String, &str)> = Vec::new();
-        for t in tracked {
-            let r = t.image_ref();
-            if self.configured(t.image).is_some() || refs.contains(&r) {
-                continue;
-            }
-            if cache.get(&r).is_none() {
-                reads.push((r.clone(), t.name));
-            }
-            refs.push(r);
+        let mut cache = if force {
+            SourceCache::default()
+        } else {
+            SourceCache::read(dir)
+        };
+        let mut by_ref: BTreeMap<String, Vec<&Tracked>> = BTreeMap::new();
+        for t in tracked
+            .iter()
+            .filter(|t| self.configured(t.image).is_none())
+        {
+            by_ref.entry(t.image_ref()).or_default().push(t);
         }
-        if !reads.is_empty() {
-            let results = crate::parallel::map(&reads, |(_, name)| self.api.container(name));
-            for ((r, name), result) in reads.into_iter().zip(results) {
-                match result {
-                    Ok(d) => {
-                        let label = d.details.config.labels.get(SOURCE_LABEL);
-                        cache.insert(r, label.and_then(|u| label_repo(u)).as_ref());
-                    }
-                    // Removed since the list; its image is read next time.
-                    Err(Error::NotFound(_)) => {}
-                    Err(e) => warnings.push(format!("labels of container {name}: {e}")),
+        let mut found = BTreeMap::new();
+        let mut reads: Vec<(String, &Tracked)> = Vec::new();
+        for (r, containers) in by_ref {
+            match containers.iter().find_map(|t| cache.get(t.id)) {
+                Some(repo) => {
+                    found.insert(r, repo);
                 }
+                None => reads.push((r, containers[0])),
             }
-            cache.retain(&refs);
+        }
+        let results = crate::parallel::map(&reads, |(_, t)| self.api.container(t.name));
+        let read_any = !reads.is_empty();
+        for ((r, t), result) in reads.into_iter().zip(results) {
+            match result {
+                Ok(d) => {
+                    let label = d.details.config.labels.get(SOURCE_LABEL);
+                    let repo = label.and_then(|u| label_repo(u));
+                    cache.insert(t.id, repo.as_ref());
+                    found.insert(r, repo);
+                }
+                // Removed since the list; its image is read next time.
+                Err(Error::NotFound(_)) => {}
+                Err(e) => warnings.push(format!("labels of container {}: {e}", t.name)),
+            }
+        }
+        let ids: Vec<&str> = tracked.iter().map(|t| t.id).collect();
+        if cache.retain(&ids) || read_any || force {
             cache.write(dir);
         }
-        refs.into_iter()
-            .filter_map(|r| cache.get(&r).map(|repo| (r, repo)))
-            .collect()
+        found
     }
 }
 
 /// A container with a version tag, as listed.
 struct Tracked<'a> {
+    id: &'a str,
     name: &'a str,
     image: &'a str,
     tag: &'a str,
 }
 
 impl Tracked<'_> {
-    /// `image:tag`, the key in `sources.json`.
+    /// `image:tag`; containers running the same one share a source.
     fn image_ref(&self) -> String {
         format!("{}:{}", self.image, self.tag)
     }
@@ -426,25 +440,88 @@ mod tests {
         assert_eq!(d.source, "https://github.com/immich-app/immich-server");
     }
 
+    const IMMICH_SERVER_ID: &str =
+        "09492d85a64c9bfb40fbf13ebd1ba45ca2bb148ac91e030fb52bb2529b892984";
+
+    fn cached_service(api: crate::dsm::fixtures::FixtureApi, dir: &tempfile::TempDir) -> Service {
+        svc(api)
+            .with_updates(Box::new(monorepo_releases()), vec![], String::new())
+            .with_cache_dir(dir.path().into())
+    }
+
     #[test]
-    fn source_labels_are_cached_per_image_tag() {
+    fn source_labels_are_cached_per_container() {
         let dir = tempfile::tempdir().unwrap();
-        let service = |api| {
-            svc(api)
-                .with_updates(Box::new(monorepo_releases()), vec![], String::new())
-                .with_cache_dir(dir.path().into())
-        };
-        service(labelled("https://github.com/immich-app/immich"))
+        cached_service(labelled("https://github.com/immich-app/immich"), &dir)
             .list_updates(None, false, now())
             .unwrap();
         // The container's details are gone, so only the cache can say.
         let mut api = fixtures();
         api.details.clear();
-        let d = service(api)
+        let d = cached_service(api, &dir)
             .get_update("immich_server", now())
             .unwrap()
             .data;
         assert_eq!(d.source, "https://github.com/immich-app/immich");
+    }
+
+    #[test]
+    fn a_recreated_container_is_read_again() {
+        let dir = tempfile::tempdir().unwrap();
+        cached_service(labelled("https://github.com/immich-app/immich"), &dir)
+            .list_updates(None, false, now())
+            .unwrap();
+        let mut api = labelled("https://github.com/immich-app/immich-server");
+        api.containers.as_mut().unwrap().containers[0].id = "recreated".into();
+        let d = cached_service(api, &dir)
+            .get_update("immich_server", now())
+            .unwrap()
+            .data;
+        assert_eq!(d.source, "https://github.com/immich-app/immich-server");
+    }
+
+    #[test]
+    fn force_reads_labels_again() {
+        let dir = tempfile::tempdir().unwrap();
+        cached_service(labelled("https://github.com/immich-app/immich"), &dir)
+            .list_updates(None, false, now())
+            .unwrap();
+        let w = cached_service(
+            labelled("https://github.com/immich-app/immich-server"),
+            &dir,
+        )
+        .list_updates(None, true, now())
+        .unwrap();
+        let d = w
+            .data
+            .items
+            .iter()
+            .find(|u| u.id == "immich_server")
+            .unwrap();
+        assert_eq!(d.status, UpdateStatus::UpToDate);
+    }
+
+    #[test]
+    fn removed_containers_drop_out_of_the_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut api = labelled("https://github.com/immich-app/immich");
+        api.containers
+            .as_mut()
+            .unwrap()
+            .containers
+            .retain(|c| c.name == "immich_server");
+        cached_service(api, &dir)
+            .list_updates(None, false, now())
+            .unwrap();
+        let cached = || SourceCache::read(Some(dir.path())).get(IMMICH_SERVER_ID);
+        assert!(cached().is_some());
+        // Nothing to read on the second run, so only pruning writes.
+        let mut api = fixtures();
+        api.containers.as_mut().unwrap().containers.clear();
+        cached_service(api, &dir)
+            .list_updates(None, false, now())
+            .unwrap();
+        assert_eq!(cached(), None);
     }
 
     #[test]

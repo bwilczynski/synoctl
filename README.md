@@ -177,8 +177,10 @@ Most images carry the label, so few need an entry; synoctl names the ones that
 do. Containers on `latest` or a digest are not tracked.
 
 DSM shows labels only in a container's details, so synoctl reads one
-container per image, eight at a time, and keeps what each `image:tag` says in
-`~/.cache/synoctl/sources.json`; a newly pulled tag is read again.
+container per image, eight at a time, and keeps what it says in
+`~/.cache/synoctl/sources.json` by container ID. A container is only read
+again once it is recreated, as pulling a new image does, or on
+`docker updates check`.
 
 Release lookups are kept in `~/.cache/synoctl/releases.json` for
 `check_interval` (an hour by default); `docker updates check` looks again
