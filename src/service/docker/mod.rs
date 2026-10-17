@@ -3,6 +3,7 @@
 mod containers;
 mod images;
 mod networks;
+mod sources;
 mod updates;
 
 pub use updates::{is_version_tag, split_image_tag};

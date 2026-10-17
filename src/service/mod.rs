@@ -12,6 +12,8 @@ mod volumes;
 
 pub use info::parse_uptime;
 
+use std::path::PathBuf;
+
 use jiff::tz::TimeZone;
 
 use crate::config::SourceConfig;
@@ -27,6 +29,9 @@ pub struct Service {
     pub(crate) sources: Vec<SourceConfig>,
     /// Where `updates.sources` lives, for the "no release source" hint.
     pub(crate) sources_hint: String,
+    /// Holds `sources.json`, the release sources read from image labels;
+    /// `None` reads them every time.
+    pub(crate) cache_dir: Option<PathBuf>,
 }
 
 impl Service {
@@ -37,6 +42,7 @@ impl Service {
             releases: Box::new(NoReleases),
             sources: Vec::new(),
             sources_hint: String::new(),
+            cache_dir: None,
         }
     }
 
@@ -51,6 +57,12 @@ impl Service {
         self.releases = releases;
         self.sources = sources;
         self.sources_hint = sources_hint;
+        self
+    }
+
+    /// Keeps the release sources read from image labels in `dir`.
+    pub fn with_cache_dir(mut self, dir: PathBuf) -> Self {
+        self.cache_dir = Some(dir);
         self
     }
 }
