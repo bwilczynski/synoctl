@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/bwilczynski/synoctl/compare/v0.1.3...v0.2.0) - 2026-10-17
+
+### Added
+
+- [**breaking**] filter volumes and backups lists, show running containers and available updates by default
+
 ## [0.1.3](https://github.com/bwilczynski/synoctl/compare/v0.1.2...v0.1.3) - 2026-10-17
 
 ### Fixed
