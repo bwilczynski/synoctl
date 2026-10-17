@@ -126,11 +126,14 @@ mod tests {
 
     use super::*;
     use crate::render::testutil::strip_ansi;
+    use crate::service::ContainerFilter;
     use crate::service::testutil::{fixtures, svc};
 
     #[test]
     fn list_table() {
-        let l = svc(fixtures()).list_containers(None).unwrap();
+        let l = svc(fixtures())
+            .list_containers(&ContainerFilter::default())
+            .unwrap();
         assert_eq!(
             list(&l, false, false),
             concat!(
@@ -144,7 +147,9 @@ mod tests {
 
     #[test]
     fn wide_list_adds_memory_share() {
-        let l = svc(fixtures()).list_containers(None).unwrap();
+        let l = svc(fixtures())
+            .list_containers(&ContainerFilter::default())
+            .unwrap();
         let out = list(&l, true, false);
         assert!(out.starts_with("ID  "), "{out}");
         assert!(
@@ -200,7 +205,9 @@ mod tests {
 
     #[test]
     fn colour_paints_without_moving_columns() {
-        let l = svc(fixtures()).list_containers(None).unwrap();
+        let l = svc(fixtures())
+            .list_containers(&ContainerFilter::default())
+            .unwrap();
         let coloured = list(&l, true, true);
         assert!(coloured.contains("\x1b[2mstopped\x1b[0m"), "{coloured}");
         assert_eq!(strip_ansi(&coloured), list(&l, true, false));

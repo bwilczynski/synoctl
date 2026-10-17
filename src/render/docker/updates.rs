@@ -48,8 +48,8 @@ mod tests {
     use super::*;
     use crate::releases::{FixtureReleases, Release, Repo};
     use crate::render::testutil::strip_ansi;
-    use crate::service::Service;
     use crate::service::testutil::{fixtures, svc};
+    use crate::service::{Service, UpdateFilter};
 
     fn now() -> Timestamp {
         "2026-04-25T12:00:00Z".parse().unwrap()
@@ -74,7 +74,10 @@ mod tests {
 
     #[test]
     fn list_table() {
-        let l = service().list_updates(None, false, now()).unwrap().data;
+        let l = service()
+            .list_updates(&UpdateFilter::default(), false, now())
+            .unwrap()
+            .data;
         assert_eq!(
             list(&l, false),
             concat!(

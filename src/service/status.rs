@@ -4,8 +4,8 @@
 
 use jiff::Timestamp;
 
-use super::Service;
 use super::volumes::{disk, volumes};
+use super::{BackupFilter, ContainerFilter, Service, UpdateFilter};
 use crate::error::{Error, Result};
 use crate::model::docker::{ContainerList, ContainerStatus, UpdateList, UpdateStatus};
 use crate::model::{
@@ -25,9 +25,9 @@ impl Service {
         let (info, storage, containers, backups, updates) = std::thread::scope(|s| {
             let info = s.spawn(|| self.api.system_info());
             let storage = s.spawn(|| self.api.storage());
-            let containers = s.spawn(|| self.list_containers(None));
-            let backups = s.spawn(|| self.list_backups());
-            let updates = s.spawn(|| self.list_updates(None, false, now));
+            let containers = s.spawn(|| self.list_containers(&ContainerFilter::default()));
+            let backups = s.spawn(|| self.list_backups(&BackupFilter::default()));
+            let updates = s.spawn(|| self.list_updates(&UpdateFilter::default(), false, now));
             (
                 join(info),
                 join(storage),

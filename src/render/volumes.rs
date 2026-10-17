@@ -72,11 +72,14 @@ pub fn get(d: &VolumeDetail, color: bool) -> String {
 mod tests {
     use super::*;
     use crate::render::testutil::strip_ansi;
+    use crate::service::VolumeFilter;
     use crate::service::testutil::{fixtures, svc};
 
     #[test]
     fn list_table() {
-        let l = svc(fixtures()).list_volumes().unwrap();
+        let l = svc(fixtures())
+            .list_volumes(&VolumeFilter::default())
+            .unwrap();
         assert_eq!(
             list(&l, false, false),
             "ID        RAID    STATUS  SIZE     USED\nvolume_1  single  normal  10.5 TB  7.5 TB\n"
@@ -85,7 +88,9 @@ mod tests {
 
     #[test]
     fn wide_list_adds_usage_and_filesystem() {
-        let l = svc(fixtures()).list_volumes().unwrap();
+        let l = svc(fixtures())
+            .list_volumes(&VolumeFilter::default())
+            .unwrap();
         assert_eq!(
             list(&l, true, false),
             concat!(
@@ -124,7 +129,7 @@ mod tests {
     #[test]
     fn colour_paints_without_moving_columns() {
         let s = svc(fixtures());
-        let l = s.list_volumes().unwrap();
+        let l = s.list_volumes(&VolumeFilter::default()).unwrap();
         let coloured = list(&l, true, true);
         assert!(coloured.contains("\x1b[32mnormal\x1b[0m"), "{coloured}");
         assert_eq!(strip_ansi(&coloured), list(&l, true, false));

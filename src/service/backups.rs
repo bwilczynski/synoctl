@@ -11,10 +11,23 @@ use crate::model::{
     BackupTask, BackupTaskDetail, BackupTaskList, BackupTaskResult, BackupTaskStatus,
 };
 
+/// Query filters for `backups list`; `None` means "do not filter".
+#[derive(Debug, Clone, Default)]
+pub struct BackupFilter {
+    pub status: Option<BackupTaskStatus>,
+    pub result: Option<BackupTaskResult>,
+}
+
+impl BackupFilter {
+    fn matches(&self, t: &BackupTask) -> bool {
+        self.status.is_none_or(|s| t.status == s) && self.result.is_none_or(|r| t.last_result == r)
+    }
+}
+
 impl Service {
-    /// Every task with its last result. A task whose status cannot be read
-    /// shows `unknown`, with a warning.
-    pub fn list_backups(&self) -> Result<Warned<BackupTaskList>> {
+    /// Every task with its last result, as far as `filter` keeps it. A task
+    /// whose status cannot be read shows `unknown`, with a warning.
+    pub fn list_backups(&self, filter: &BackupFilter) -> Result<Warned<BackupTaskList>> {
         let tasks = self.api.backup_tasks()?.task_list;
         let statuses: Vec<Result<types::BackupTaskStatus>> = std::thread::scope(|s| {
             let handles: Vec<_> = tasks
@@ -31,6 +44,7 @@ impl Service {
                 let status = ok_or_warn(status, &t.name, "status", &mut warnings);
                 task(t, status.as_ref())
             })
+            .filter(|t| filter.matches(t))
             .collect();
         Ok(Warned {
             data: BackupTaskList { items },
@@ -53,7 +67,10 @@ impl Service {
     }
 
     /// Every task in detail, for `backups list --wide`.
-    pub fn list_backups_wide(&self) -> Result<Warned<Vec<BackupTaskDetail>>> {
+    pub fn list_backups_wide(
+        &self,
+        filter: &BackupFilter,
+    ) -> Result<Warned<Vec<BackupTaskDetail>>> {
         let tasks = self.api.backup_tasks()?.task_list;
         let results: Vec<Warned<BackupTaskDetail>> = std::thread::scope(|s| {
             let handles: Vec<_> = tasks
@@ -78,6 +95,7 @@ impl Service {
                 warnings.extend(w.warnings);
                 w.data
             })
+            .filter(|d| filter.matches(&d.task))
             .collect();
         Ok(Warned { data, warnings })
     }
@@ -187,7 +205,9 @@ mod tests {
 
     #[test]
     fn list_from_fixture_with_missing_status() {
-        let w = svc(fixtures()).list_backups().unwrap();
+        let w = svc(fixtures())
+            .list_backups(&BackupFilter::default())
+            .unwrap();
         assert_eq!(
             w.data.items,
             vec![
@@ -259,7 +279,9 @@ mod tests {
 
     #[test]
     fn wide_list_has_details_per_task() {
-        let w = svc(fixtures()).list_backups_wide().unwrap();
+        let w = svc(fixtures())
+            .list_backups_wide(&BackupFilter::default())
+            .unwrap();
         assert_eq!(w.data.len(), 2);
         assert_eq!(w.data[0].size, Some(3206674163));
         assert_eq!(w.data[1].size, None);
@@ -267,11 +289,49 @@ mod tests {
     }
 
     #[test]
+    fn list_filters_by_status_and_result() {
+        let ids = |filter: BackupFilter| {
+            let s = svc(fixtures());
+            let list = s.list_backups(&filter).unwrap().data.ids();
+            let wide: Vec<String> = s
+                .list_backups_wide(&filter)
+                .unwrap()
+                .data
+                .into_iter()
+                .map(|d| d.task.id)
+                .collect();
+            assert_eq!(list, wide, "list and --wide filter alike");
+            list
+        };
+        assert_eq!(
+            ids(BackupFilter {
+                result: Some(BackupTaskResult::Warning),
+                ..Default::default()
+            }),
+            ["3"]
+        );
+        assert_eq!(
+            ids(BackupFilter {
+                status: Some(BackupTaskStatus::Idle),
+                result: Some(BackupTaskResult::Unknown),
+            }),
+            ["4"]
+        );
+        assert!(
+            ids(BackupFilter {
+                status: Some(BackupTaskStatus::Running),
+                ..Default::default()
+            })
+            .is_empty()
+        );
+    }
+
+    #[test]
     fn hyper_backup_missing_is_an_error() {
         let mut api = fixtures();
         api.backup_tasks = None;
         assert!(matches!(
-            svc(api).list_backups(),
+            svc(api).list_backups(&BackupFilter::default()),
             Err(crate::error::Error::NotInstalled(_))
         ));
     }

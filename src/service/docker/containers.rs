@@ -11,10 +11,21 @@ use crate::model::docker::{
 };
 use crate::service::Service;
 
+/// Query filters for `docker containers list`; `None` means "do not filter".
+#[derive(Debug, Clone, Default)]
+pub struct ContainerFilter {
+    pub status: Option<ContainerStatus>,
+}
+
+impl ContainerFilter {
+    fn matches(&self, c: &Container) -> bool {
+        self.status.is_none_or(|s| c.status == s)
+    }
+}
+
 impl Service {
-    /// Every container with its CPU and memory use; `status` keeps only
-    /// containers in that state.
-    pub fn list_containers(&self, status: Option<ContainerStatus>) -> Result<ContainerList> {
+    /// Every container with its CPU and memory use, as far as `filter` keeps it.
+    pub fn list_containers(&self, filter: &ContainerFilter) -> Result<ContainerList> {
         fetch!(
             list = self.api.containers(),
             res = self.api.container_resources(),
@@ -29,7 +40,7 @@ impl Service {
                 image: c.image.clone(),
                 resources: resources(find(&res.resources, &c.name)),
             })
-            .filter(|c| status.is_none_or(|s| c.status == s))
+            .filter(|c| filter.matches(c))
             .collect();
         Ok(ContainerList { items })
     }
@@ -169,7 +180,9 @@ mod tests {
 
     #[test]
     fn list_joins_resources_by_name() {
-        let l = svc(fixtures()).list_containers(None).unwrap();
+        let l = svc(fixtures())
+            .list_containers(&ContainerFilter::default())
+            .unwrap();
         assert_eq!(
             l.items
                 .iter()
@@ -211,14 +224,18 @@ mod tests {
     fn container_without_resources_has_zeros() {
         let mut api = fixtures();
         api.resources.resources.clear();
-        let l = svc(api).list_containers(None).unwrap();
+        let l = svc(api)
+            .list_containers(&ContainerFilter::default())
+            .unwrap();
         assert_eq!(l.items[2].resources.memory_bytes, 0);
     }
 
     #[test]
     fn list_filters_by_status() {
         let l = svc(fixtures())
-            .list_containers(Some(ContainerStatus::Stopped))
+            .list_containers(&ContainerFilter {
+                status: Some(ContainerStatus::Stopped),
+            })
             .unwrap();
         assert_eq!(l.ids(), ["prometheus"]);
     }

@@ -120,13 +120,13 @@ asks the NAS once; pass `--refresh` to any command to skip the cache.
 synoctl status
 synoctl info
 synoctl utilization
-synoctl volumes list [--wide] | get <id>
-synoctl backups list [--wide] | get <id>
-synoctl docker containers list [--status STATUS] [--wide] | get <name>
+synoctl volumes list [--status STATUS] [--wide] | get <id>
+synoctl backups list [--status STATUS] [--result RESULT] [--wide] | get <id>
+synoctl docker containers list [--status STATUS | --all] [--wide] | get <name>
 synoctl docker containers start|stop|restart <name>
 synoctl docker images list | get <id>
 synoctl docker networks list | get <name>
-synoctl docker updates list [--status STATUS] | get <name> | check
+synoctl docker updates list|check [--status STATUS | --all] | get <name>
 ```
 
 Every command takes `-o json`; every `list` also takes `-o ids`, printing one
@@ -134,6 +134,11 @@ ID per line for scripts (`synoctl docker containers list --status stopped -o ids
 | xargs -n1 synoctl docker containers start`). IDs are DSM's own: container
 and network names, the first 12 characters of an image digest, volume IDs
 (`volume_1`) and backup task numbers.
+
+`docker containers list` shows running containers and `docker updates list`
+shows containers with an update available, unless you pick a `--status` or
+pass `--all`. Filters combine: `synoctl backups list --status idle --result
+failed` lists idle tasks whose last run failed.
 
 `--wide` adds columns: volume usage and filesystem, a backup task's last and
 next run and stored size, a container's memory share. A container's restart

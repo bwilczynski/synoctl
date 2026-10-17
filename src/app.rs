@@ -10,7 +10,7 @@ use serde::Serialize;
 use crate::cache::Cache;
 use crate::cli::{
     BackupsCommand, Cli, ColorMode, Command, ConfigCommand, ContainersCommand, DockerCommand,
-    ImagesCommand, NetworksCommand, OutputFormat, UpdatesCommand, VolumesCommand,
+    ImagesCommand, NetworksCommand, OutputFormat, UpdatesCommand, UpdatesListArgs, VolumesCommand,
 };
 use crate::completion;
 use crate::config;
@@ -18,10 +18,10 @@ use crate::dsm::client::DsmClient;
 use crate::dsm::session::SessionStore;
 use crate::error::{Error, Result};
 use crate::model::Ids;
-use crate::model::docker::Action;
+use crate::model::docker::{Action, ContainerStatus, UpdateStatus};
 use crate::releases::HttpReleases;
 use crate::render;
-use crate::service::{Service, Warned};
+use crate::service::{BackupFilter, ContainerFilter, Service, UpdateFilter, VolumeFilter, Warned};
 use crate::setup;
 
 /// Entry point used by `main.rs`; returns the process exit code.
@@ -248,21 +248,36 @@ fn execute(svc: &Service, cmd: &Command, ctx: &Ctx) -> Result<String> {
         Command::Info => emit(out, &svc.info()?, render::info::table),
         Command::Utilization => emit(out, &svc.utilization(ctx.now)?, render::utilization::table),
         Command::Volumes { command } => match command {
-            VolumesCommand::List { wide } => emit_list(out, &svc.list_volumes()?, |l| {
-                render::volumes::list(l, *wide, color)
-            }),
+            VolumesCommand::List { status, wide } => {
+                let filter = VolumeFilter {
+                    status: status.map(Into::into),
+                };
+                emit_list(out, &svc.list_volumes(&filter)?, |l| {
+                    render::volumes::list(l, *wide, color)
+                })
+            }
             VolumesCommand::Get { id } => emit(out, &svc.get_volume(id)?, |d| {
                 render::volumes::get(d, color)
             }),
         },
         Command::Backups { command } => match command {
-            BackupsCommand::List { wide: true } if out == OutputFormat::Table => {
-                let l = warned(svc.list_backups_wide()?);
-                Ok(render::backups::list_wide(&l, tz, color))
+            BackupsCommand::List {
+                status,
+                result,
+                wide,
+            } => {
+                let filter = BackupFilter {
+                    status: status.map(Into::into),
+                    result: result.map(Into::into),
+                };
+                if *wide && out == OutputFormat::Table {
+                    let l = warned(svc.list_backups_wide(&filter)?);
+                    return Ok(render::backups::list_wide(&l, tz, color));
+                }
+                emit_list(out, &warned(svc.list_backups(&filter)?), |l| {
+                    render::backups::list(l, color)
+                })
             }
-            BackupsCommand::List { .. } => emit_list(out, &warned(svc.list_backups()?), |l| {
-                render::backups::list(l, color)
-            }),
             BackupsCommand::Get { id } => emit(out, &warned(svc.get_backup(id)?), |d| {
                 render::backups::get(d, tz, color)
             }),
@@ -278,10 +293,17 @@ fn docker(svc: &Service, cmd: &DockerCommand, ctx: &Ctx) -> Result<String> {
     let (out, color, tz) = (ctx.out, ctx.color, &ctx.tz);
     match cmd {
         DockerCommand::Containers { command } => match command {
-            ContainersCommand::List { status, wide } => {
-                let l = svc.list_containers(status.map(Into::into))?;
-                emit_list(out, &l, |l| {
-                    render::docker::containers::list(l, *wide, color)
+            ContainersCommand::List(args) => {
+                let filter = ContainerFilter {
+                    // Running only unless --status or --all is given, like `docker ps`.
+                    status: if args.all {
+                        None
+                    } else {
+                        Some(args.status.map_or(ContainerStatus::Running, Into::into))
+                    },
+                };
+                emit_list(out, &svc.list_containers(&filter)?, |l| {
+                    render::docker::containers::list(l, args.wide, color)
                 })
             }
             ContainersCommand::Get { name } => emit(out, &svc.get_container(name)?, |d| {
@@ -308,13 +330,24 @@ fn docker(svc: &Service, cmd: &DockerCommand, ctx: &Ctx) -> Result<String> {
             }
         },
         DockerCommand::Updates { command } => {
-            let list = |status: Option<_>, force| -> Result<String> {
-                let l = warned(svc.list_updates(status, force, ctx.now)?);
+            let list = |args: &UpdatesListArgs, force| -> Result<String> {
+                let filter = UpdateFilter {
+                    // Available updates only unless --status or --all is given.
+                    status: if args.all {
+                        None
+                    } else {
+                        Some(
+                            args.status
+                                .map_or(UpdateStatus::UpdateAvailable, Into::into),
+                        )
+                    },
+                };
+                let l = warned(svc.list_updates(&filter, force, ctx.now)?);
                 emit_list(out, &l, |l| render::docker::updates::list(l, color))
             };
             match command {
-                UpdatesCommand::List { status } => list(status.map(Into::into), false),
-                UpdatesCommand::Check => list(None, true),
+                UpdatesCommand::List(args) => list(args, false),
+                UpdatesCommand::Check(args) => list(args, true),
                 UpdatesCommand::Get { name } => {
                     emit(out, &warned(svc.get_update(name, ctx.now)?), |d| {
                         render::docker::updates::get(d, tz, color)
@@ -372,7 +405,7 @@ fn lists_ids(cmd: &Command) -> bool {
             DockerCommand::Images { command } => matches!(command, ImagesCommand::List),
             DockerCommand::Networks { command } => matches!(command, NetworksCommand::List),
             DockerCommand::Updates { command } => {
-                matches!(command, UpdatesCommand::List { .. } | UpdatesCommand::Check)
+                matches!(command, UpdatesCommand::List(_) | UpdatesCommand::Check(_))
             }
         },
         _ => false,
