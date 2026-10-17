@@ -76,7 +76,7 @@ impl Service {
         let candidates: Vec<Candidate> = tracked
             .into_iter()
             .map(|t| {
-                let label = labels.get(&t.image_ref()).cloned().flatten();
+                let label = labels.get(t.id).cloned().flatten();
                 let repo = self.resolve(t.image, label);
                 if repo.is_none() && warned.insert(t.image) {
                     let hint = if self.sources_hint.is_empty() {
@@ -157,11 +157,12 @@ impl Service {
             .map(|s| Repo::new(s.r#type, &s.source))
     }
 
-    /// The source label of each tracked image without an `updates.sources`
-    /// entry, by `image:tag`: from `sources.json` when one of its containers
-    /// was read before, else read from one of them, those reads in
-    /// parallel. `force` reads every image again. Images whose read failed
-    /// are absent.
+    /// The source label of each tracked container whose image has no
+    /// `updates.sources` entry, by container ID: from `sources.json`, else
+    /// read from DSM, those reads in parallel. Containers are resolved one
+    /// by one, since two running the same tag can still differ: one may be
+    /// recreated from a republished tag or with other labels. `force` reads
+    /// every container again. Containers whose read failed are absent.
     fn label_sources(
         &self,
         tracked: &[Tracked],
@@ -174,34 +175,30 @@ impl Service {
         } else {
             SourceCache::read(dir)
         };
-        let mut by_ref: BTreeMap<String, Vec<&Tracked>> = BTreeMap::new();
+        let mut found = BTreeMap::new();
+        let mut reads: Vec<&Tracked> = Vec::new();
         for t in tracked
             .iter()
             .filter(|t| self.configured(t.image).is_none())
         {
-            by_ref.entry(t.image_ref()).or_default().push(t);
-        }
-        let mut found = BTreeMap::new();
-        let mut reads: Vec<(String, &Tracked)> = Vec::new();
-        for (r, containers) in by_ref {
-            match containers.iter().find_map(|t| cache.get(t.id)) {
+            match cache.get(t.id) {
                 Some(repo) => {
-                    found.insert(r, repo);
+                    found.insert(t.id.to_string(), repo);
                 }
-                None => reads.push((r, containers[0])),
+                None => reads.push(t),
             }
         }
-        let results = crate::parallel::map(&reads, |(_, t)| self.api.container(t.name));
+        let results = crate::parallel::map(&reads, |t| self.api.container(t.name));
         let read_any = !reads.is_empty();
-        for ((r, t), result) in reads.into_iter().zip(results) {
+        for (t, result) in reads.into_iter().zip(results) {
             match result {
                 Ok(d) => {
                     let label = d.details.config.labels.get(SOURCE_LABEL);
                     let repo = label.and_then(|u| label_repo(u));
                     cache.insert(t.id, repo.as_ref());
-                    found.insert(r, repo);
+                    found.insert(t.id.to_string(), repo);
                 }
-                // Removed since the list; its image is read next time.
+                // Removed since the list; read next time it is listed.
                 Err(Error::NotFound(_)) => {}
                 Err(e) => warnings.push(format!("labels of container {}: {e}", t.name)),
             }
@@ -220,13 +217,6 @@ struct Tracked<'a> {
     name: &'a str,
     image: &'a str,
     tag: &'a str,
-}
-
-impl Tracked<'_> {
-    /// `image:tag`; containers running the same one share a source.
-    fn image_ref(&self) -> String {
-        format!("{}:{}", self.image, self.tag)
-    }
 }
 
 /// `v1.2.3` and `1.2.3` are the same version.
@@ -478,6 +468,48 @@ mod tests {
             .unwrap()
             .data;
         assert_eq!(d.source, "https://github.com/immich-app/immich-server");
+    }
+
+    #[test]
+    fn a_cached_sibling_does_not_mask_a_new_container() {
+        let dir = tempfile::tempdir().unwrap();
+        let only_server = |mut api: crate::dsm::fixtures::FixtureApi| {
+            api.containers
+                .as_mut()
+                .unwrap()
+                .containers
+                .retain(|c| c.name == "immich_server");
+            api
+        };
+        cached_service(
+            only_server(labelled("https://github.com/immich-app/immich")),
+            &dir,
+        )
+        .list_updates(None, false, now())
+        .unwrap();
+        // A second container on the same tag, created with another label.
+        let mut api = only_server(labelled("https://github.com/immich-app/immich"));
+        let list = &mut api.containers.as_mut().unwrap().containers;
+        let mut sibling = list[0].clone();
+        sibling.id = "sibling".into();
+        sibling.name = "immich_server_2".into();
+        list.push(sibling);
+        let mut detail = api.details["immich_server"].clone();
+        detail.details.config.labels.insert(
+            super::SOURCE_LABEL.into(),
+            "https://github.com/immich-app/immich-server".into(),
+        );
+        api.details.insert("immich_server_2".into(), detail);
+        let s = cached_service(api, &dir);
+        let source = |name| s.get_update(name, now()).unwrap().data.source;
+        assert_eq!(
+            source("immich_server"),
+            "https://github.com/immich-app/immich"
+        );
+        assert_eq!(
+            source("immich_server_2"),
+            "https://github.com/immich-app/immich-server"
+        );
     }
 
     #[test]
