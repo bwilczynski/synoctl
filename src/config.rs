@@ -223,8 +223,8 @@ pub fn load(path: &Path, explicit: bool, env: &dyn Fn(&str) -> Option<String>) -
         }
     };
     let secret_in_file = holds_secret(&file);
-    if secret_in_file {
-        warnings.extend(permission_warning(path));
+    if !no_file {
+        warnings.extend(permission_warning(path, secret_in_file));
     }
     let var = |k: &str| env(k).filter(|v| !v.is_empty());
     let pick =
@@ -413,15 +413,26 @@ fn holds_secret(file: &FileConfig) -> bool {
     file.password.as_deref().is_some_and(|p| !p.is_empty())
 }
 
-fn permission_warning(path: &Path) -> Option<String> {
-    let mode = file_mode(path)?;
-    (mode & 0o077 != 0).then(|| {
-        format!(
-            "{} is readable by other users; run `chmod 600 {}`",
-            path.display(),
-            path.display()
-        )
-    })
+/// What is wrong with a config file's `mode`, if anything. Others writing it
+/// is always a problem: they could point a secret command, or the host, at
+/// their own. Others reading it is one only when it holds a literal secret.
+pub fn mode_problem(mode: u32, secret_in_file: bool) -> Option<&'static str> {
+    if mode & 0o022 != 0 {
+        Some("writable by other users")
+    } else if secret_in_file && mode & 0o044 != 0 {
+        Some("readable by other users")
+    } else {
+        None
+    }
+}
+
+fn permission_warning(path: &Path, secret_in_file: bool) -> Option<String> {
+    let problem = mode_problem(file_mode(path)?, secret_in_file)?;
+    Some(format!(
+        "{} is {problem}; run `chmod 600 {}`",
+        path.display(),
+        path.display()
+    ))
 }
 
 #[cfg(test)]
@@ -783,6 +794,30 @@ mod tests {
         let l = load(&p, true, &env_of(&[])).unwrap();
         assert!(l.warnings.is_empty(), "{:?}", l.warnings);
         assert!(!l.secret_in_file);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn writable_file_warns_even_without_a_secret() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let p = write_file(
+            &dir,
+            "host = \"h\"\nusername = \"u\"\npassword_command = \"pass show nas\"\n",
+        );
+        for mode in [0o664, 0o666] {
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(mode)).unwrap();
+            let w = load(&p, true, &env_of(&[])).unwrap().warnings;
+            assert_eq!(
+                w,
+                vec![format!(
+                    "{} is writable by other users; run `chmod 600 {}`",
+                    p.display(),
+                    p.display()
+                )],
+                "{mode:o}"
+            );
+        }
     }
 
     #[cfg(unix)]

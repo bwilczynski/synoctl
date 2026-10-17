@@ -201,20 +201,20 @@ fn permissions(path: &Path, exists: bool, secret_in_file: bool) -> Check {
     }
     match config::file_mode(path) {
         None => Check::new("permissions", Status::Skip, "not checked on this platform"),
-        Some(mode) if mode & 0o077 == 0 => {
-            Check::new("permissions", Status::Pass, format!("{mode:04o}"))
-        }
-        Some(mode) if !secret_in_file => Check::new(
-            "permissions",
-            Status::Pass,
-            format!("{mode:04o}; no secret in the file"),
-        ),
-        Some(mode) => Check::new(
-            "permissions",
-            Status::Warn,
-            format!("{mode:04o}: readable by other users"),
-        )
-        .hint(format!("chmod 600 {}", path.display())),
+        Some(mode) => match config::mode_problem(mode, secret_in_file) {
+            Some(problem) => Check::new(
+                "permissions",
+                Status::Warn,
+                format!("{mode:04o}: {problem}"),
+            )
+            .hint(format!("chmod 600 {}", path.display())),
+            None if mode & 0o044 != 0 => Check::new(
+                "permissions",
+                Status::Pass,
+                format!("{mode:04o}; no secret in the file"),
+            ),
+            None => Check::new("permissions", Status::Pass, format!("{mode:04o}")),
+        },
     }
 }
 
@@ -443,6 +443,25 @@ mod tests {
         assert_eq!(perms.status, Pass);
         assert_eq!(perms.detail, "0644; no secret in the file");
         assert_eq!(perms.hint, None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn writable_file_without_a_secret_warns() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let p = write_cfg(
+            &dir,
+            "host = \"127.0.0.1:9\"\nusername = \"u\"\npassword_command = \"pass show nas\"\n",
+        );
+        for mode in [0o664, 0o666] {
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(mode)).unwrap();
+            let r = run_with(&p, false, &no_env, "http");
+            let perms = check(&r, "permissions");
+            assert_eq!(perms.status, Warn);
+            assert_eq!(perms.detail, format!("{mode:04o}: writable by other users"));
+            assert_eq!(perms.hint, Some(format!("chmod 600 {}", p.display())));
+        }
     }
 
     #[test]
