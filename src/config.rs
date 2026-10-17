@@ -128,6 +128,8 @@ pub struct Loaded {
     pub config: Config,
     /// Non-fatal problems to print on stderr.
     pub warnings: Vec<String>,
+    /// The file itself holds a literal secret, so its permissions matter.
+    pub secret_in_file: bool,
 }
 
 /// The keys of config.toml. `config init` writes only the ones it sets.
@@ -207,7 +209,6 @@ pub fn load(path: &Path, explicit: bool, env: &dyn Fn(&str) -> Option<String>) -
     let mut no_file = false;
     let file = match std::fs::read_to_string(path) {
         Ok(text) => {
-            warnings.extend(permission_warning(path));
             toml::from_str::<FileConfig>(&text).map_err(|e| parse_error(path, &text, &e))?
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound && !explicit => {
@@ -221,6 +222,10 @@ pub fn load(path: &Path, explicit: bool, env: &dyn Fn(&str) -> Option<String>) -
             )));
         }
     };
+    let secret_in_file = holds_secret(&file);
+    if secret_in_file {
+        warnings.extend(permission_warning(path));
+    }
     let var = |k: &str| env(k).filter(|v| !v.is_empty());
     let pick =
         |key: &str, from_file: Option<String>| var(key).or(from_file).filter(|v| !v.is_empty());
@@ -293,6 +298,7 @@ pub fn load(path: &Path, explicit: bool, env: &dyn Fn(&str) -> Option<String>) -
             },
         },
         warnings,
+        secret_in_file,
     })
 }
 
@@ -398,6 +404,13 @@ pub fn file_mode(path: &Path) -> Option<u32> {
 #[cfg(not(unix))]
 pub fn file_mode(_path: &Path) -> Option<u32> {
     None
+}
+
+/// Whether the file holds a literal password. A file that names only a
+/// `password_command` is safe to leave readable, e.g. symlinked from a
+/// dotfiles checkout.
+fn holds_secret(file: &FileConfig) -> bool {
+    file.password.as_deref().is_some_and(|p| !p.is_empty())
 }
 
 fn permission_warning(path: &Path) -> Option<String> {
@@ -755,6 +768,21 @@ mod tests {
                 p.display()
             )]
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn readable_file_without_a_secret_does_not_warn() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let p = write_file(
+            &dir,
+            "host = \"h\"\nusername = \"u\"\npassword_command = \"pass show nas\"\n",
+        );
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let l = load(&p, true, &env_of(&[])).unwrap();
+        assert!(l.warnings.is_empty(), "{:?}", l.warnings);
+        assert!(!l.secret_in_file);
     }
 
     #[cfg(unix)]
