@@ -76,11 +76,15 @@ mod tests {
 
     use super::*;
     use crate::render::testutil::strip_ansi;
+    use crate::service::BackupFilter;
     use crate::service::testutil::{fixtures, svc};
 
     #[test]
     fn list_table() {
-        let l = svc(fixtures()).list_backups().unwrap().data;
+        let l = svc(fixtures())
+            .list_backups(&BackupFilter::default())
+            .unwrap()
+            .data;
         assert_eq!(
             list(&l, false),
             concat!(
@@ -93,7 +97,10 @@ mod tests {
 
     #[test]
     fn wide_list_adds_runs_and_size() {
-        let l = svc(fixtures()).list_backups_wide().unwrap().data;
+        let l = svc(fixtures())
+            .list_backups_wide(&BackupFilter::default())
+            .unwrap()
+            .data;
         assert_eq!(
             list_wide(&l, &TimeZone::UTC, false),
             concat!(
@@ -133,7 +140,10 @@ mod tests {
 
     #[test]
     fn colour_paints_without_moving_columns() {
-        let l = svc(fixtures()).list_backups().unwrap().data;
+        let l = svc(fixtures())
+            .list_backups(&BackupFilter::default())
+            .unwrap()
+            .data;
         let coloured = list(&l, true);
         assert!(coloured.contains("\x1b[33mwarning\x1b[0m"), "{coloured}");
         assert!(coloured.contains("\x1b[2munknown\x1b[0m"), "{coloured}");

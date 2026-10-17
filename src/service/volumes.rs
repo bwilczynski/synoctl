@@ -5,12 +5,24 @@ use crate::dsm::types::{self, Storage};
 use crate::error::{Error, Result};
 use crate::model::{DiskStatus, Volume, VolumeDetail, VolumeDisk, VolumeList, VolumeStatus};
 
+/// Query filters for `volumes list`; `None` means "do not filter".
+#[derive(Debug, Clone, Default)]
+pub struct VolumeFilter {
+    pub status: Option<VolumeStatus>,
+}
+
+impl VolumeFilter {
+    fn matches(&self, v: &Volume) -> bool {
+        self.status.is_none_or(|s| v.status == s)
+    }
+}
+
 impl Service {
-    pub fn list_volumes(&self) -> Result<VolumeList> {
+    pub fn list_volumes(&self, filter: &VolumeFilter) -> Result<VolumeList> {
         let storage = self.api.storage()?;
-        Ok(VolumeList {
-            items: volumes(&storage),
-        })
+        let mut items = volumes(&storage);
+        items.retain(|v| filter.matches(v));
+        Ok(VolumeList { items })
     }
 
     pub fn get_volume(&self, id: &str) -> Result<VolumeDetail> {
@@ -91,7 +103,9 @@ mod tests {
 
     #[test]
     fn list_from_fixture() {
-        let l = svc(fixtures()).list_volumes().unwrap();
+        let l = svc(fixtures())
+            .list_volumes(&VolumeFilter::default())
+            .unwrap();
         assert_eq!(
             l.items,
             vec![Volume {
@@ -105,6 +119,20 @@ mod tests {
             }]
         );
         assert_eq!(l.ids(), ["volume_1"]);
+    }
+
+    #[test]
+    fn list_filters_by_status() {
+        let ids = |status| {
+            svc(fixtures())
+                .list_volumes(&VolumeFilter {
+                    status: Some(status),
+                })
+                .unwrap()
+                .ids()
+        };
+        assert_eq!(ids(VolumeStatus::Normal), ["volume_1"]);
+        assert!(ids(VolumeStatus::Crashed).is_empty());
     }
 
     #[test]
@@ -155,14 +183,20 @@ mod tests {
     fn unparseable_sizes_are_zero() {
         let mut api = fixtures();
         api.storage.volumes[0].size.total = String::new();
-        let v = &svc(api).list_volumes().unwrap().items[0];
+        let v = &svc(api)
+            .list_volumes(&VolumeFilter::default())
+            .unwrap()
+            .items[0];
         assert_eq!(v.total_bytes, 0);
         assert_eq!(v.used_percent(), None);
     }
 
     #[test]
     fn used_percent() {
-        let v = &svc(fixtures()).list_volumes().unwrap().items[0];
+        let v = &svc(fixtures())
+            .list_volumes(&VolumeFilter::default())
+            .unwrap()
+            .items[0];
         assert_eq!((v.used_percent().unwrap() * 10.0).round(), 715.0);
     }
 

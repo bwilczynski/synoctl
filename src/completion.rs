@@ -13,8 +13,8 @@ use clap_complete::env::{CompleteEnv, Shells};
 use crate::app;
 use crate::cli::{Cli, Shell};
 use crate::error::{Error, Result};
-use crate::service::Service;
 use crate::service::docker::{is_version_tag, split_image_tag};
+use crate::service::{BackupFilter, ContainerFilter, Service, VolumeFilter};
 
 /// Environment variable that turns a run into a completion request.
 const VAR: &str = "COMPLETE";
@@ -63,7 +63,7 @@ fn completer_path() -> String {
 
 pub fn containers() -> Vec<CompletionCandidate> {
     ids(|svc| {
-        let items = svc.list_containers(None)?.items;
+        let items = svc.list_containers(&ContainerFilter::default())?.items;
         Ok(items
             .into_iter()
             .map(|c| (c.id, c.status.as_str().to_string()))
@@ -96,7 +96,7 @@ pub fn networks() -> Vec<CompletionCandidate> {
 
 pub fn volumes() -> Vec<CompletionCandidate> {
     ids(|svc| {
-        let items = svc.list_volumes()?.items;
+        let items = svc.list_volumes(&VolumeFilter::default())?.items;
         Ok(items
             .into_iter()
             .map(|v| (v.id, v.status.as_str().to_string()))
@@ -106,7 +106,7 @@ pub fn volumes() -> Vec<CompletionCandidate> {
 
 pub fn backups() -> Vec<CompletionCandidate> {
     ids(|svc| {
-        let items = svc.list_backups()?.data.items;
+        let items = svc.list_backups(&BackupFilter::default())?.data.items;
         Ok(items.into_iter().map(|t| (t.id, t.name)).collect())
     })
 }
@@ -115,7 +115,7 @@ pub fn backups() -> Vec<CompletionCandidate> {
 /// GitHub.
 pub fn updates() -> Vec<CompletionCandidate> {
     ids(|svc| {
-        let items = svc.list_containers(None)?.items;
+        let items = svc.list_containers(&ContainerFilter::default())?.items;
         Ok(items
             .into_iter()
             .filter(|c| is_version_tag(split_image_tag(&c.image).1))

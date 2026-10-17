@@ -6,6 +6,7 @@ use clap_complete::engine::ArgValueCandidates;
 use crate::completion;
 
 use crate::model::docker::{ContainerStatus, UpdateStatus};
+use crate::model::{BackupTaskResult, BackupTaskStatus, VolumeStatus};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -103,6 +104,9 @@ pub enum Shell {
 pub enum VolumesCommand {
     /// List volumes
     List {
+        /// Only volumes in this state
+        #[arg(long, value_enum)]
+        status: Option<VolumeStatusArg>,
         /// Show additional columns (usage, filesystem)
         #[arg(long)]
         wide: bool,
@@ -118,6 +122,12 @@ pub enum VolumesCommand {
 pub enum BackupsCommand {
     /// List backup tasks and their last result
     List {
+        /// Only tasks in this state
+        #[arg(long, value_enum)]
+        status: Option<BackupStatusArg>,
+        /// Only tasks whose last run had this result
+        #[arg(long, value_enum)]
+        result: Option<BackupResultArg>,
         /// Show additional columns (last run, next run, size)
         #[arg(long)]
         wide: bool,
@@ -155,15 +165,9 @@ pub enum DockerCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum ContainersCommand {
-    /// List containers with their CPU and memory use
-    List {
-        /// Only containers in this state
-        #[arg(long, value_enum)]
-        status: Option<ContainerStatusArg>,
-        /// Show additional columns (restarts, memory share)
-        #[arg(long)]
-        wide: bool,
-    },
+    /// List containers with their CPU and memory use (running only, unless
+    /// --status or --all is given)
+    List(ContainersListArgs),
     /// Show a container's configuration and state
     Get {
         #[arg(add = ArgValueCandidates::new(completion::containers))]
@@ -210,19 +214,38 @@ pub enum NetworksCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum UpdatesCommand {
-    /// List tracked containers and whether a newer release exists
-    List {
-        /// Only updates in this state
-        #[arg(long, value_enum)]
-        status: Option<UpdateStatusArg>,
-    },
+    /// List tracked containers with a newer release (all of them with --all)
+    List(UpdatesListArgs),
     /// Show a tracked container's source and latest release
     Get {
         #[arg(add = ArgValueCandidates::new(completion::updates))]
         name: String,
     },
     /// Look up releases now, ignoring the cache, and list the result
-    Check,
+    Check(UpdatesListArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ContainersListArgs {
+    /// Only containers in this state
+    #[arg(long, value_enum, conflicts_with = "all")]
+    pub status: Option<ContainerStatusArg>,
+    /// Show additional columns (restarts, memory share)
+    #[arg(long)]
+    pub wide: bool,
+    /// Show containers in every state (overrides the default status=running filter)
+    #[arg(long)]
+    pub all: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct UpdatesListArgs {
+    /// Only updates in this state
+    #[arg(long, value_enum, conflicts_with = "all")]
+    pub status: Option<UpdateStatusArg>,
+    /// Show every tracked container (overrides the default status=updateAvailable filter)
+    #[arg(long)]
+    pub all: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -248,9 +271,9 @@ impl From<ContainerStatusArg> for ContainerStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum UpdateStatusArg {
-    #[value(name = "upToDate")]
+    #[value(name = "upToDate", alias = "up-to-date")]
     UpToDate,
-    #[value(name = "updateAvailable")]
+    #[value(name = "updateAvailable", alias = "update-available")]
     UpdateAvailable,
     Stale,
     Unknown,
@@ -263,6 +286,65 @@ impl From<UpdateStatusArg> for UpdateStatus {
             UpdateStatusArg::UpdateAvailable => Self::UpdateAvailable,
             UpdateStatusArg::Stale => Self::Stale,
             UpdateStatusArg::Unknown => Self::Unknown,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum VolumeStatusArg {
+    Normal,
+    Degraded,
+    Repairing,
+    Crashed,
+}
+
+impl From<VolumeStatusArg> for VolumeStatus {
+    fn from(a: VolumeStatusArg) -> Self {
+        match a {
+            VolumeStatusArg::Normal => Self::Normal,
+            VolumeStatusArg::Degraded => Self::Degraded,
+            VolumeStatusArg::Repairing => Self::Repairing,
+            VolumeStatusArg::Crashed => Self::Crashed,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum BackupStatusArg {
+    Idle,
+    Running,
+    Suspended,
+    Error,
+}
+
+impl From<BackupStatusArg> for BackupTaskStatus {
+    fn from(a: BackupStatusArg) -> Self {
+        match a {
+            BackupStatusArg::Idle => Self::Idle,
+            BackupStatusArg::Running => Self::Running,
+            BackupStatusArg::Suspended => Self::Suspended,
+            BackupStatusArg::Error => Self::Error,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum BackupResultArg {
+    Success,
+    Warning,
+    Failed,
+    Skipped,
+    Unknown,
+}
+
+impl From<BackupResultArg> for BackupTaskResult {
+    fn from(a: BackupResultArg) -> Self {
+        match a {
+            BackupResultArg::Success => Self::Success,
+            BackupResultArg::Warning => Self::Warning,
+            BackupResultArg::Failed => Self::Failed,
+            BackupResultArg::Skipped => Self::Skipped,
+            BackupResultArg::Unknown => Self::Unknown,
         }
     }
 }

@@ -21,12 +21,24 @@ struct Candidate {
     repo: Option<Repo>,
 }
 
+/// Query filters for `docker updates list`; `None` means "do not filter".
+#[derive(Debug, Clone, Default)]
+pub struct UpdateFilter {
+    pub status: Option<UpdateStatus>,
+}
+
+impl UpdateFilter {
+    fn matches(&self, u: &Update) -> bool {
+        self.status.is_none_or(|s| u.status == s)
+    }
+}
+
 impl Service {
-    /// Every container with a version tag; `status` keeps only those in that
-    /// state, `force` ignores cached releases.
+    /// Every container with a version tag, as far as `filter` keeps it;
+    /// `force` ignores cached releases.
     pub fn list_updates(
         &self,
-        status: Option<UpdateStatus>,
+        filter: &UpdateFilter,
         force: bool,
         now: Timestamp,
     ) -> Result<Warned<UpdateList>> {
@@ -35,7 +47,7 @@ impl Service {
             .data
             .into_iter()
             .map(|d| d.update)
-            .filter(|u| status.is_none_or(|s| u.status == s))
+            .filter(|u| filter.matches(u))
             .collect();
         Ok(Warned {
             data: UpdateList { items },
@@ -339,7 +351,9 @@ mod tests {
     fn ghcr_images_resolve_without_config() {
         let s =
             svc(fixtures()).with_updates(Box::new(immich_releases()), vec![], "cfg.toml".into());
-        let w = s.list_updates(None, false, now()).unwrap();
+        let w = s
+            .list_updates(&UpdateFilter::default(), false, now())
+            .unwrap();
         assert_eq!(
             w.data
                 .items
@@ -443,7 +457,7 @@ mod tests {
     fn source_labels_are_cached_per_container() {
         let dir = tempfile::tempdir().unwrap();
         cached_service(labelled("https://github.com/immich-app/immich"), &dir)
-            .list_updates(None, false, now())
+            .list_updates(&UpdateFilter::default(), false, now())
             .unwrap();
         // The container's details are gone, so only the cache can say.
         let mut api = fixtures();
@@ -459,7 +473,7 @@ mod tests {
     fn a_recreated_container_is_read_again() {
         let dir = tempfile::tempdir().unwrap();
         cached_service(labelled("https://github.com/immich-app/immich"), &dir)
-            .list_updates(None, false, now())
+            .list_updates(&UpdateFilter::default(), false, now())
             .unwrap();
         let mut api = labelled("https://github.com/immich-app/immich-server");
         api.containers.as_mut().unwrap().containers[0].id = "recreated".into();
@@ -485,7 +499,7 @@ mod tests {
             only_server(labelled("https://github.com/immich-app/immich")),
             &dir,
         )
-        .list_updates(None, false, now())
+        .list_updates(&UpdateFilter::default(), false, now())
         .unwrap();
         // A second container on the same tag, created with another label.
         let mut api = only_server(labelled("https://github.com/immich-app/immich"));
@@ -516,13 +530,13 @@ mod tests {
     fn force_reads_labels_again() {
         let dir = tempfile::tempdir().unwrap();
         cached_service(labelled("https://github.com/immich-app/immich"), &dir)
-            .list_updates(None, false, now())
+            .list_updates(&UpdateFilter::default(), false, now())
             .unwrap();
         let w = cached_service(
             labelled("https://github.com/immich-app/immich-server"),
             &dir,
         )
-        .list_updates(None, true, now())
+        .list_updates(&UpdateFilter::default(), true, now())
         .unwrap();
         let d = w
             .data
@@ -543,7 +557,7 @@ mod tests {
             .containers
             .retain(|c| c.name == "immich_server");
         cached_service(api, &dir)
-            .list_updates(None, false, now())
+            .list_updates(&UpdateFilter::default(), false, now())
             .unwrap();
         let cached = || SourceCache::read(Some(dir.path())).get(IMMICH_SERVER_ID);
         assert!(cached().is_some());
@@ -551,7 +565,7 @@ mod tests {
         let mut api = fixtures();
         api.containers.as_mut().unwrap().containers.clear();
         cached_service(api, &dir)
-            .list_updates(None, false, now())
+            .list_updates(&UpdateFilter::default(), false, now())
             .unwrap();
         assert_eq!(cached(), None);
     }
@@ -643,7 +657,10 @@ mod tests {
         api.containers.as_mut().unwrap().containers[2].image = "prom/prometheus:latest".into();
         let s = svc(api).with_updates(Box::new(immich_releases()), vec![], String::new());
         assert_eq!(
-            s.list_updates(None, false, now()).unwrap().data.ids(),
+            s.list_updates(&UpdateFilter::default(), false, now())
+                .unwrap()
+                .data
+                .ids(),
             ["immich_server", "immich_machine_learning"]
         );
     }
@@ -652,7 +669,13 @@ mod tests {
     fn status_filter() {
         let s = svc(fixtures()).with_updates(Box::new(immich_releases()), vec![], String::new());
         let l = s
-            .list_updates(Some(UpdateStatus::UpdateAvailable), false, now())
+            .list_updates(
+                &UpdateFilter {
+                    status: Some(UpdateStatus::UpdateAvailable),
+                },
+                false,
+                now(),
+            )
             .unwrap();
         assert_eq!(l.data.ids(), ["immich_machine_learning"]);
     }
@@ -673,7 +696,7 @@ mod tests {
         let mut api = fixtures();
         api.containers = None;
         assert!(matches!(
-            svc(api).list_updates(None, false, now()),
+            svc(api).list_updates(&UpdateFilter::default(), false, now()),
             Err(crate::error::Error::NotInstalled(_))
         ));
     }
@@ -681,7 +704,12 @@ mod tests {
     #[test]
     fn json_shape() {
         let s = svc(fixtures()).with_updates(Box::new(immich_releases()), vec![], String::new());
-        let v = serde_json::to_value(s.list_updates(None, false, now()).unwrap().data).unwrap();
+        let v = serde_json::to_value(
+            s.list_updates(&UpdateFilter::default(), false, now())
+                .unwrap()
+                .data,
+        )
+        .unwrap();
         assert_eq!(v["items"][1]["status"], "updateAvailable");
         assert_eq!(v["items"][1]["type"], "container");
         assert_eq!(v["items"][1]["checkedAt"], "2026-04-25T12:00:00Z");

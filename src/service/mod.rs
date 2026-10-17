@@ -10,7 +10,10 @@ pub use status::{DISK_WARN_C, VOLUME_ERROR_PCT, VOLUME_WARN_PCT};
 mod utilization;
 mod volumes;
 
+pub use backups::BackupFilter;
+pub use docker::{ContainerFilter, UpdateFilter};
 pub use info::parse_uptime;
+pub use volumes::VolumeFilter;
 
 use std::path::PathBuf;
 

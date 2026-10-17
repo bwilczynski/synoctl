@@ -86,12 +86,14 @@ mod with_fixtures {
         &["backups", "get", "3"],
         &["docker", "containers", "list"],
         &["docker", "containers", "list", "--wide"],
+        &["docker", "containers", "list", "--all"],
         &["docker", "containers", "get", "immich_server"],
         &["docker", "images", "list"],
         &["docker", "images", "get", "aabbccddeeff"],
         &["docker", "networks", "list"],
         &["docker", "networks", "get", "host"],
         &["docker", "updates", "list"],
+        &["docker", "updates", "list", "--all"],
         &["docker", "updates", "get", "immich_server"],
         &["docker", "updates", "check"],
     ];
@@ -132,7 +134,14 @@ mod with_fixtures {
     #[test]
     fn ids_output() {
         assert_eq!(
-            stdout(&run(&["docker", "containers", "list", "-o", "ids"])),
+            stdout(&run(&[
+                "docker",
+                "containers",
+                "list",
+                "--all",
+                "-o",
+                "ids"
+            ])),
             "immich_server\nimmich_machine_learning\nprometheus\n"
         );
         assert_eq!(stdout(&run(&["backups", "list", "-o", "ids"])), "3\n4\n");
@@ -221,6 +230,58 @@ mod with_fixtures {
                 "ids"
             ])),
             "prometheus\n"
+        );
+    }
+
+    #[test]
+    fn containers_list_shows_running_by_default() {
+        assert_eq!(
+            stdout(&run(&["docker", "containers", "list", "-o", "ids"])),
+            "immich_server\nimmich_machine_learning\n"
+        );
+        let o = run(&[
+            "docker",
+            "containers",
+            "list",
+            "--all",
+            "--status",
+            "stopped",
+        ]);
+        assert_eq!(o.status.code(), Some(2), "--all conflicts with --status");
+    }
+
+    #[test]
+    fn updates_list_shows_available_by_default() {
+        for cmd in ["list", "check"] {
+            assert_eq!(stdout(&run(&["docker", "updates", cmd, "-o", "ids"])), "");
+            assert_eq!(
+                stdout(&run(&["docker", "updates", cmd, "--all", "-o", "ids"])),
+                "immich_server\nimmich_machine_learning\nprometheus\n"
+            );
+        }
+        let o = run(&["docker", "updates", "list", "--status", "up-to-date"]);
+        assert_eq!(o.status.code(), Some(0), "kebab-case alias");
+    }
+
+    #[test]
+    fn volumes_and_backups_filters() {
+        assert_eq!(
+            stdout(&run(&[
+                "volumes", "list", "--status", "crashed", "-o", "ids"
+            ])),
+            ""
+        );
+        assert_eq!(
+            stdout(&run(&[
+                "backups", "list", "--result", "warning", "-o", "ids"
+            ])),
+            "3\n"
+        );
+        assert_eq!(
+            stdout(&run(&[
+                "backups", "list", "--status", "idle", "--result", "unknown", "-o", "ids"
+            ])),
+            "4\n"
         );
     }
 
