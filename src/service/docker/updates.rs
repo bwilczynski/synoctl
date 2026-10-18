@@ -74,8 +74,7 @@ impl Service {
         let tracked: Vec<Tracked> = containers
             .iter()
             .filter_map(|c| {
-                let (image, tag) = split_image_tag(&c.image);
-                is_version_tag(tag).then_some(Tracked {
+                tracked_image(&c.image).map(|(image, tag)| Tracked {
                     id: &c.id,
                     name: &c.name,
                     image,
@@ -236,11 +235,21 @@ fn normalize(v: &str) -> &str {
     v.strip_prefix('v').unwrap_or(v)
 }
 
+/// (`registry/image`, `tag`) of an image whose updates are tracked: one
+/// pinned to a version tag. `latest`, an untagged image and any reference
+/// with a `@sha256:…` digest, tagged or not, are not tracked: a digest pins
+/// the exact image, whatever its tag says.
+pub fn tracked_image(image: &str) -> Option<(&str, &str)> {
+    if image.contains('@') {
+        return None;
+    }
+    let (name, tag) = split_image_tag(image);
+    is_version_tag(tag).then_some((name, tag))
+}
+
 /// `registry/image:tag` → (`registry/image`, `tag`); the tag is only looked
-/// for after the last `/`, so a registry port is never read as a tag, and a
-/// `@sha256:…` digest is dropped.
-pub fn split_image_tag(image: &str) -> (&str, &str) {
-    let image = image.split_once('@').map_or(image, |(name, _)| name);
+/// for after the last `/`, so a registry port is never read as a tag.
+fn split_image_tag(image: &str) -> (&str, &str) {
     let name_start = image.rfind('/').map_or(0, |i| i + 1);
     match image[name_start..].rfind(':') {
         Some(i) => (&image[..name_start + i], &image[name_start + i + 1..]),
@@ -248,9 +257,9 @@ pub fn split_image_tag(image: &str) -> (&str, &str) {
     }
 }
 
-/// Not empty, not `latest`, not a digest.
-pub fn is_version_tag(tag: &str) -> bool {
-    !(tag.is_empty() || tag == "latest" || tag.starts_with("sha256:"))
+/// Not empty, not `latest`.
+fn is_version_tag(tag: &str) -> bool {
+    !(tag.is_empty() || tag == "latest")
 }
 
 /// `ghcr.io/owner/repo[/…]` → `owner/repo`.
@@ -321,16 +330,23 @@ mod tests {
             split_image_tag("registry.lan:5000/app"),
             ("registry.lan:5000/app", "")
         );
-        assert_eq!(split_image_tag("app@sha256:abc"), ("app", ""));
-        assert_eq!(split_image_tag("app:1.2@sha256:abc"), ("app", "1.2"));
     }
 
     #[test]
-    fn version_tags() {
-        for t in ["", "latest", "sha256:abc"] {
-            assert!(!is_version_tag(t), "{t}");
+    fn tracked_images() {
+        let digest = format!("@sha256:{}", "a".repeat(64));
+        for i in [
+            "busybox".to_string(),
+            "app:latest".into(),
+            format!("app{digest}"),
+            format!("ghcr.io/immich-app/immich-server:v9.0.0{digest}"),
+        ] {
+            assert_eq!(tracked_image(&i), None, "{i}");
         }
-        assert!(is_version_tag("v2.6.3"));
+        assert_eq!(
+            tracked_image("registry.lan:5000/app:v2.6.3"),
+            Some(("registry.lan:5000/app", "v2.6.3"))
+        );
     }
 
     #[test]
@@ -662,6 +678,23 @@ mod tests {
                 .data
                 .ids(),
             ["immich_server", "immich_machine_learning"]
+        );
+    }
+
+    #[test]
+    fn digest_pinned_images_are_not_tracked() {
+        let mut api = fixtures();
+        api.containers.as_mut().unwrap().containers[0].image = format!(
+            "ghcr.io/immich-app/immich-server:v9.0.0@sha256:{}",
+            "0".repeat(64)
+        );
+        let s = svc(api).with_updates(Box::new(immich_releases()), vec![], String::new());
+        assert_eq!(
+            s.list_updates(&UpdateFilter::default(), false, now())
+                .unwrap()
+                .data
+                .ids(),
+            ["immich_machine_learning", "prometheus"]
         );
     }
 

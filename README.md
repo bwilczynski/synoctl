@@ -179,7 +179,8 @@ release of its source project, found in this order:
 3. for `ghcr.io/<owner>/<repo>` images, that GitHub repository.
 
 Most images carry the label, so few need an entry; synoctl names the ones that
-do. Containers on `latest` or a digest are not tracked.
+do. Containers on `latest` or pinned to a digest (even with a tag, as in
+`app:1.2@sha256:…`) are not tracked.
 
 DSM shows labels only in a container's details, so synoctl reads each
 container's, eight at a time, and keeps what they say in

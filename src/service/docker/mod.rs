@@ -7,4 +7,4 @@ mod sources;
 mod updates;
 
 pub use containers::ContainerFilter;
-pub use updates::{UpdateFilter, is_version_tag, split_image_tag};
+pub use updates::{UpdateFilter, tracked_image};
