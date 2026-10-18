@@ -157,7 +157,7 @@ line per area with a verdict and the culprits named below it:
 | Area | warn | error |
 |---|---|---|
 | SYSTEM | DSM reports a temperature warning | |
-| VOLUMES | degraded or repairing, or 80% used | crashed, or 95% used |
+| VOLUMES | volume or storage pool degraded or repairing, or 80% used | volume or storage pool crashed, or 95% used |
 | DISKS | disk status warning, or 50 °C | failing or critical |
 | CONTAINERS | a container not running | a dead container |
 | BACKUPS | last result warning or skipped, task suspended, result unknown | last result failed |

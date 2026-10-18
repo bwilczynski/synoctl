@@ -4,7 +4,7 @@
 
 use jiff::Timestamp;
 
-use super::volumes::{disk, volumes};
+use super::volumes::{disk, volume_status, volumes};
 use super::{BackupFilter, ContainerFilter, Service, UpdateFilter};
 use crate::error::{Error, Result};
 use crate::model::docker::{ContainerList, ContainerStatus, UpdateList, UpdateStatus};
@@ -150,16 +150,40 @@ fn system_row(r: Result<(SystemInfo, i64, bool)>) -> StatusRow {
     }
 }
 
+fn volume_verdict(s: VolumeStatus) -> Verdict {
+    match s {
+        VolumeStatus::Normal => Verdict::Ok,
+        VolumeStatus::Degraded | VolumeStatus::Repairing => Verdict::Warn,
+        VolumeStatus::Crashed => Verdict::Error,
+    }
+}
+
+/// Volumes and the storage pools under them: a pool can fail while its
+/// volumes still read normal.
 fn volumes_row(st: &crate::dsm::types::Storage) -> StatusRow {
     let vols = volumes(st);
     let mut verdict = Verdict::Ok;
     let mut problems = Vec::new();
+    for p in &st.storage_pools {
+        let status = volume_status(&p.status);
+        let state = volume_verdict(status);
+        if state != Verdict::Ok {
+            let on: Vec<&str> = st
+                .volumes
+                .iter()
+                .filter(|v| v.pool_path == p.id)
+                .map(|v| v.id.as_str())
+                .collect();
+            let mut problem = format!("pool {} {}", p.id, status.as_str());
+            if !on.is_empty() {
+                problem.push_str(&format!(" ({})", on.join(", ")));
+            }
+            problems.push(problem);
+            verdict = worst(verdict, state);
+        }
+    }
     for v in &vols {
-        let state = match v.status {
-            VolumeStatus::Normal => Verdict::Ok,
-            VolumeStatus::Degraded | VolumeStatus::Repairing => Verdict::Warn,
-            VolumeStatus::Crashed => Verdict::Error,
-        };
+        let state = volume_verdict(v.status);
         if state != Verdict::Ok {
             problems.push(format!("{} {}", v.id, v.status.as_str()));
             verdict = worst(verdict, state);
@@ -464,6 +488,29 @@ mod tests {
         let mut api = fixtures();
         api.storage.volumes[0].status = "degraded".into();
         assert_eq!(row(&status(api), Volumes).verdict, Warn);
+    }
+
+    #[test]
+    fn pool_health() {
+        let mut api = fixtures();
+        api.storage.storage_pools[0].status = "crashed".into();
+        let s = status(api);
+        assert_eq!(row(&s, Volumes).verdict, Error);
+        assert_eq!(
+            row(&s, Volumes).problems,
+            ["pool reuse_1 crashed (volume_1)"]
+        );
+        assert!(s.has_error());
+        for state in ["degraded", "repairing"] {
+            let mut api = fixtures();
+            api.storage.storage_pools[0].status = state.into();
+            let s = status(api);
+            assert_eq!(row(&s, Volumes).verdict, Warn, "{state}");
+            assert_eq!(
+                row(&s, Volumes).problems,
+                [format!("pool reuse_1 {state} (volume_1)")]
+            );
+        }
     }
 
     #[test]
