@@ -13,7 +13,7 @@ use clap_complete::env::{CompleteEnv, Shells};
 use crate::app;
 use crate::cli::{Cli, Shell};
 use crate::error::{Error, Result};
-use crate::service::docker::{is_version_tag, split_image_tag};
+use crate::service::docker::tracked_image;
 use crate::service::{BackupFilter, ContainerFilter, Service, VolumeFilter};
 
 /// Environment variable that turns a run into a completion request.
@@ -118,7 +118,7 @@ pub fn updates() -> Vec<CompletionCandidate> {
         let items = svc.list_containers(&ContainerFilter::default())?.items;
         Ok(items
             .into_iter()
-            .filter(|c| is_version_tag(split_image_tag(&c.image).1))
+            .filter(|c| tracked_image(&c.image).is_some())
             .map(|c| (c.id, c.image))
             .collect())
     })
