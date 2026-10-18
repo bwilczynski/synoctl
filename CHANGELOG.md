@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/bwilczynski/synoctl/compare/v0.2.0...v0.2.1) - 2026-10-18
+
+### Fixed
+
+- include storage-pool health in the status volumes row
+- report an update only when the release is a newer version
+- do not track updates for digest-pinned images with a tag
+
 ## [0.2.0](https://github.com/bwilczynski/synoctl/compare/v0.1.3...v0.2.0) - 2026-10-17
 
 ### Added
