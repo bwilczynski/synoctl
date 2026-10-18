@@ -1,6 +1,7 @@
 //! `docker updates`, from homelab-api/internal/system/updates_service.go:
 //! running image tags against the latest upstream release.
 
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 use jiff::Timestamp;
@@ -126,10 +127,7 @@ impl Service {
                 let status = match (&c.repo, release) {
                     (None, _) => UpdateStatus::Unknown,
                     (Some(_), None) => UpdateStatus::Stale,
-                    (Some(_), Some(r)) if normalize(&r.tag_name) == normalize(&c.tag) => {
-                        UpdateStatus::UpToDate
-                    }
-                    (Some(_), Some(_)) => UpdateStatus::UpdateAvailable,
+                    (Some(_), Some(r)) => compare_tags(&c.tag, &r.tag_name),
                 };
                 UpdateDetail {
                     update: Update {
@@ -230,9 +228,106 @@ struct Tracked<'a> {
     tag: &'a str,
 }
 
+/// The running tag against the latest release's: an update only when the
+/// release is a newer version. Tags that are not both versions can only be
+/// told equal; when they differ, neither can be called newer.
+fn compare_tags(current: &str, latest: &str) -> UpdateStatus {
+    match (Version::parse(current), Version::parse(latest)) {
+        (Some(c), Some(l)) if c < l => UpdateStatus::UpdateAvailable,
+        (Some(_), Some(_)) => UpdateStatus::UpToDate,
+        _ if normalize(current) == normalize(latest) => UpdateStatus::UpToDate,
+        _ => UpdateStatus::Incomparable,
+    }
+}
+
 /// `v1.2.3` and `1.2.3` are the same version.
 fn normalize(v: &str) -> &str {
     v.strip_prefix('v').unwrap_or(v)
+}
+
+/// A `[v]1.2.3[-pre][+build]` tag, ordered as semver orders versions, with
+/// any number of numeric parts: missing ones count as `0`, a pre-release
+/// comes before its release, and build metadata is ignored.
+#[derive(Debug)]
+struct Version<'a> {
+    parts: Vec<u64>,
+    pre: Option<&'a str>,
+}
+
+impl<'a> Version<'a> {
+    fn parse(tag: &'a str) -> Option<Self> {
+        let tag = normalize(tag);
+        let tag = tag.split_once('+').map_or(tag, |(v, _)| v);
+        let (core, pre) = match tag.split_once('-') {
+            Some((core, pre)) if !pre.is_empty() => (core, Some(pre)),
+            Some(_) => return None,
+            None => (tag, None),
+        };
+        let parts = core
+            .split('.')
+            .map(|p| {
+                (!p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+                    .then(|| p.parse().ok())
+                    .flatten()
+            })
+            .collect::<Option<Vec<u64>>>()?;
+        Some(Self { parts, pre })
+    }
+}
+
+impl Ord for Version<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let len = self.parts.len().max(other.parts.len());
+        let part = |v: &Self, i| v.parts.get(i).copied().unwrap_or(0);
+        (0..len)
+            .map(|i| part(self, i).cmp(&part(other, i)))
+            .find(|o| o.is_ne())
+            .unwrap_or_else(|| match (self.pre, other.pre) {
+                (None, None) => Ordering::Equal,
+                (None, Some(_)) => Ordering::Greater,
+                (Some(_), None) => Ordering::Less,
+                (Some(a), Some(b)) => cmp_pre(a, b),
+            })
+    }
+}
+
+impl PartialOrd for Version<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for Version<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
+    }
+}
+
+impl Eq for Version<'_> {}
+
+/// Semver pre-release order: dot-separated identifiers in turn, numeric
+/// ones by value and before alphanumeric ones, the shorter list first when
+/// one is a prefix of the other.
+fn cmp_pre(a: &str, b: &str) -> Ordering {
+    let id = |s: &str| s.parse::<u64>().ok();
+    let mut a = a.split('.');
+    let mut b = b.split('.');
+    loop {
+        let o = match (a.next(), b.next()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(x), Some(y)) => match (id(x), id(y)) {
+                (Some(m), Some(n)) => m.cmp(&n),
+                (Some(_), None) => Ordering::Less,
+                (None, Some(_)) => Ordering::Greater,
+                (None, None) => x.cmp(y),
+            },
+        };
+        if o.is_ne() {
+            return o;
+        }
+    }
 }
 
 /// (`registry/image`, `tag`) of an image whose updates are tracked: one
@@ -664,6 +759,45 @@ mod tests {
         assert_eq!(
             s.get_update("prometheus", now()).unwrap().data.status,
             UpdateStatus::UpToDate
+        );
+    }
+
+    #[test]
+    fn tag_comparison() {
+        use UpdateStatus::*;
+        for (current, latest, want) in [
+            ("v2.6.3", "v2.7.0", UpdateAvailable),
+            ("v2.6.3", "v2.6.10", UpdateAvailable),
+            ("1.2", "1.2.1", UpdateAvailable),
+            ("1.0.0-rc.1", "1.0.0", UpdateAvailable),
+            ("1.0.0-alpha", "1.0.0-alpha.1", UpdateAvailable),
+            ("1.0.0-alpha.2", "1.0.0-alpha.10", UpdateAvailable),
+            ("1.0.0-alpha.1", "1.0.0-beta", UpdateAvailable),
+            ("v9.0.0", "v2.0.0", UpToDate),
+            ("1.2.0", "v1.2", UpToDate),
+            ("1.0.0+build.5", "1.0.0", UpToDate),
+            ("1.0.0", "1.0.0-rc.1", UpToDate),
+            ("stable", "stable", UpToDate),
+            ("stable", "v1.0.0", Incomparable),
+            ("1.0.0", "release-2024", Incomparable),
+            ("1..0", "1.0.1", Incomparable),
+        ] {
+            assert_eq!(compare_tags(current, latest), want, "{current} → {latest}");
+        }
+    }
+
+    #[test]
+    fn an_older_release_is_not_an_update() {
+        let r = FixtureReleases::of([rel("prometheus/prometheus", "v3.0.0")]);
+        let s = svc(fixtures()).with_updates(Box::new(r), vec![prometheus_source()], String::new());
+        let u = s.get_update("prometheus", now()).unwrap().data.update;
+        assert_eq!(
+            (
+                u.status,
+                u.current_version.as_str(),
+                u.latest_version.as_str()
+            ),
+            (UpdateStatus::UpToDate, "v3.2.1", "v3.0.0")
         );
     }
 

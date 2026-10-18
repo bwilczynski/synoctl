@@ -239,6 +239,9 @@ pub enum UpdateStatus {
     Stale,
     /// No release source is configured for the image.
     Unknown,
+    /// The running tag and the release's differ, but are not both versions,
+    /// so neither can be called newer.
+    Incomparable,
 }
 
 /// A container whose image tag is tracked against upstream releases.
@@ -291,4 +294,4 @@ labels!(ContainerStatus { Running => "running", Stopped => "stopped", Paused => 
 labels!(RestartPolicy { Always => "always", UnlessStopped => "unlessStopped", OnFailure => "onFailure", No => "no" });
 labels!(Protocol { Tcp => "tcp", Udp => "udp" });
 labels!(MountMode { Ro => "ro", Rw => "rw" });
-labels!(UpdateStatus { UpToDate => "upToDate", UpdateAvailable => "updateAvailable", Stale => "stale", Unknown => "unknown" });
+labels!(UpdateStatus { UpToDate => "upToDate", UpdateAvailable => "updateAvailable", Stale => "stale", Unknown => "unknown", Incomparable => "incomparable" });

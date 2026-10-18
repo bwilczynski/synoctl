@@ -330,6 +330,10 @@ fn updates_row(list: &UpdateList, warnings: &[String]) -> StatusRow {
     if unknown > 0 {
         parts.push(format!("{unknown} without a release source"));
     }
+    let incomparable = count(UpdateStatus::Incomparable);
+    if incomparable > 0 {
+        parts.push(format!("{incomparable} with tags that cannot be compared"));
+    }
     row(
         StatusArea::Updates,
         Verdict::Ok,
@@ -588,6 +592,21 @@ mod tests {
             (
                 Ok,
                 "0 of 3 up to date, 2 not checked yet, 1 without a release source"
+            )
+        );
+    }
+
+    #[test]
+    fn incomparable_tags_are_counted() {
+        let mut api = fixtures();
+        api.containers.as_mut().unwrap().containers[1].image =
+            "ghcr.io/immich-app/immich-machine-learning:stable".into();
+        let s = status(api);
+        assert_eq!(
+            (row(&s, Updates).verdict, row(&s, Updates).summary.as_str()),
+            (
+                Ok,
+                "1 of 3 up to date, 1 without a release source, 1 with tags that cannot be compared"
             )
         );
     }

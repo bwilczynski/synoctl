@@ -351,6 +351,7 @@ mod tests {
             UpdateStatus::UpdateAvailable,
             UpdateStatus::Stale,
             UpdateStatus::Unknown,
+            UpdateStatus::Incomparable,
         ] {
             assert_eq!(v.as_str(), json(v));
         }

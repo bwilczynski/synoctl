@@ -90,7 +90,7 @@ pub fn update_status(s: UpdateStatus, on: bool) -> String {
     let p = match s {
         UpdateStatus::UpToDate => Paint::Green,
         UpdateStatus::UpdateAvailable => Paint::Yellow,
-        UpdateStatus::Stale | UpdateStatus::Unknown => Paint::Dim,
+        UpdateStatus::Stale | UpdateStatus::Unknown | UpdateStatus::Incomparable => Paint::Dim,
     };
     paint(s.as_str(), p, on)
 }
