@@ -277,6 +277,7 @@ pub enum UpdateStatusArg {
     UpdateAvailable,
     Stale,
     Unknown,
+    Incomparable,
 }
 
 impl From<UpdateStatusArg> for UpdateStatus {
@@ -286,6 +287,7 @@ impl From<UpdateStatusArg> for UpdateStatus {
             UpdateStatusArg::UpdateAvailable => Self::UpdateAvailable,
             UpdateStatusArg::Stale => Self::Stale,
             UpdateStatusArg::Unknown => Self::Unknown,
+            UpdateStatusArg::Incomparable => Self::Incomparable,
         }
     }
 }

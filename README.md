@@ -182,6 +182,11 @@ Most images carry the label, so few need an entry; synoctl names the ones that
 do. Containers on `latest` or pinned to a digest (even with a tag, as in
 `app:1.2@sha256:…`) are not tracked.
 
+Tags are compared as versions (`v2.6.10` is newer than `2.6.3`, and a
+`-rc.1` pre-release comes before its release), so a container ahead of the
+latest release is `upToDate`, not offered a downgrade. Tags that differ but
+are not both versions, such as `stable` against `v1.0.0`, are `incomparable`.
+
 DSM shows labels only in a container's details, so synoctl reads each
 container's, eight at a time, and keeps what they say in
 `~/.cache/synoctl/sources.json` by container ID. A container is only read
