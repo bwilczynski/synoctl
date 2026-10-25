@@ -315,6 +315,7 @@ impl From<VolumeStatusArg> for VolumeStatus {
 pub enum BackupStatusArg {
     Idle,
     Running,
+    Checking,
     Suspended,
     Error,
 }
@@ -324,6 +325,7 @@ impl From<BackupStatusArg> for BackupTaskStatus {
         match a {
             BackupStatusArg::Idle => Self::Idle,
             BackupStatusArg::Running => Self::Running,
+            BackupStatusArg::Checking => Self::Checking,
             BackupStatusArg::Suspended => Self::Suspended,
             BackupStatusArg::Error => Self::Error,
         }
@@ -335,7 +337,7 @@ pub enum BackupResultArg {
     Success,
     Warning,
     Failed,
-    Skipped,
+    Canceled,
     Unknown,
 }
 
@@ -345,7 +347,7 @@ impl From<BackupResultArg> for BackupTaskResult {
             BackupResultArg::Success => Self::Success,
             BackupResultArg::Warning => Self::Warning,
             BackupResultArg::Failed => Self::Failed,
-            BackupResultArg::Skipped => Self::Skipped,
+            BackupResultArg::Canceled => Self::Canceled,
             BackupResultArg::Unknown => Self::Unknown,
         }
     }

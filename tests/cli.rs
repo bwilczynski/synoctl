@@ -273,7 +273,7 @@ mod with_fixtures {
         );
         assert_eq!(
             stdout(&run(&[
-                "backups", "list", "--result", "warning", "-o", "ids"
+                "backups", "list", "--result", "success", "-o", "ids"
             ])),
             "3\n"
         );

@@ -89,7 +89,7 @@ mod tests {
             list(&l, false),
             concat!(
                 "ID  NAME              STATUS  LAST RESULT  TYPE\n",
-                "3   Backup to LOCAL   idle    warning      hyperBackup\n",
+                "3   Backup to LOCAL   idle    success      hyperBackup\n",
                 "4   Backup to REMOTE  idle    unknown      hyperBackup\n",
             )
         );
@@ -105,7 +105,7 @@ mod tests {
             list_wide(&l, &TimeZone::UTC, false),
             concat!(
                 "ID  NAME              STATUS  LAST RESULT  TYPE         LAST RUN          NEXT RUN          SIZE\n",
-                "3   Backup to LOCAL   idle    warning      hyperBackup  2026-04-24 02:30  2026-04-25 01:00  3.0 GB\n",
+                "3   Backup to LOCAL   idle    success      hyperBackup  2026-04-24 02:30  2026-04-25 01:00  3.0 GB\n",
                 "4   Backup to REMOTE  idle    unknown      hyperBackup  -                 -                 -\n",
             )
         );
@@ -121,7 +121,7 @@ mod tests {
                 "ID           3\n",
                 "NAME         Backup to LOCAL\n",
                 "STATUS       idle\n",
-                "LAST RESULT  warning\n",
+                "LAST RESULT  success\n",
                 "TYPE         hyperBackup\n",
                 "LAST RUN     2026-04-24 02:30\n",
                 "NEXT RUN     2026-04-25 01:00\n",
@@ -145,7 +145,7 @@ mod tests {
             .unwrap()
             .data;
         let coloured = list(&l, true);
-        assert!(coloured.contains("\x1b[33mwarning\x1b[0m"), "{coloured}");
+        assert!(coloured.contains("\x1b[32msuccess\x1b[0m"), "{coloured}");
         assert!(coloured.contains("\x1b[2munknown\x1b[0m"), "{coloured}");
         assert_eq!(strip_ansi(&coloured), list(&l, false));
     }

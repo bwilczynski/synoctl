@@ -117,10 +117,11 @@ fn optional<T>(
 
 fn worst(a: Verdict, b: Verdict) -> Verdict {
     let rank = |v| match v {
-        Verdict::Ok | Verdict::Info => 0,
-        Verdict::Unknown => 1,
-        Verdict::Warn => 2,
-        Verdict::Error => 3,
+        Verdict::Ok => 0,
+        Verdict::Info => 1,
+        Verdict::Unknown => 2,
+        Verdict::Warn => 3,
+        Verdict::Error => 4,
     };
     if rank(b) > rank(a) { b } else { a }
 }
@@ -270,28 +271,33 @@ fn containers_row(list: ContainerList) -> StatusRow {
     )
 }
 
+/// Problems ranked like Hyper Backup's task list: a task's
+/// state comes first, and its last result counts only while it is idle.
 fn backups_row(list: BackupTaskList) -> StatusRow {
     let mut verdict = Verdict::Ok;
     let mut problems = Vec::new();
     type Matches = fn(&BackupTask) -> bool;
-    let groups: [(&str, Verdict, Matches); 6] = [
+    let groups: [(&str, Verdict, Matches); 7] = [
         ("failed", Verdict::Error, |t| {
-            t.last_result == BackupTaskResult::Failed
+            idle(t, BackupTaskResult::Failed)
+        }),
+        ("canceled", Verdict::Error, |t| {
+            idle(t, BackupTaskResult::Canceled)
         }),
         ("error", Verdict::Error, |t| {
             t.status == BackupTaskStatus::Error
         }),
         ("warning", Verdict::Warn, |t| {
-            t.last_result == BackupTaskResult::Warning
-        }),
-        ("skipped", Verdict::Warn, |t| {
-            t.last_result == BackupTaskResult::Skipped
+            idle(t, BackupTaskResult::Warning)
         }),
         ("suspended", Verdict::Warn, |t| {
             t.status == BackupTaskStatus::Suspended
         }),
         ("result unknown", Verdict::Warn, |t| {
-            t.last_result == BackupTaskResult::Unknown
+            idle(t, BackupTaskResult::Unknown)
+        }),
+        ("checking", Verdict::Info, |t| {
+            t.status == BackupTaskStatus::Checking
         }),
     ];
     for (label, level, matches) in groups {
@@ -312,6 +318,12 @@ fn backups_row(list: BackupTaskList) -> StatusRow {
         plural(list.items.len(), "task", "tasks"),
         problems,
     )
+}
+
+/// An idle task whose last run ended `r`; DSM shows a busy task's activity
+/// instead of its last result.
+fn idle(t: &BackupTask, r: BackupTaskResult) -> bool {
+    t.status == BackupTaskStatus::Idle && t.last_result == r
 }
 
 fn updates_row(list: &UpdateList, warnings: &[String]) -> StatusRow {
@@ -445,10 +457,7 @@ mod tests {
         assert_eq!(row(&s, Backups).summary, "2 tasks");
         assert_eq!(
             row(&s, Backups).problems,
-            [
-                "warning: Backup to LOCAL",
-                "result unknown: Backup to REMOTE"
-            ]
+            ["result unknown: Backup to REMOTE"]
         );
         assert_eq!(row(&s, Updates).summary, "1 container behind");
         assert_eq!(
@@ -562,20 +571,86 @@ mod tests {
     #[test]
     fn suspended_backup_warns() {
         let mut api = fixtures();
-        api.backup_statuses.get_mut(&3).unwrap().last_bkp_error_code = 0;
-        let mut tasks = api.backup_tasks.take().unwrap();
-        tasks.task_list[0].state = "suspend".into();
-        tasks.task_list.truncate(1);
-        api.backup_tasks = Some(tasks);
+        api.backup_statuses.get_mut(&3).unwrap().last_bkp_result = "suspend".into();
+        api.backup_tasks.as_mut().unwrap().task_list.truncate(1);
         let s = status(api);
         assert_eq!(row(&s, Backups).verdict, Warn);
         assert_eq!(row(&s, Backups).problems, ["suspended: Backup to LOCAL"]);
     }
 
+    /// Fixture task 3 alone, its list `state`/`status` and last result set.
+    fn one_task(state: &str, activity: &str, last: &str) -> NasStatus {
+        let mut api = fixtures();
+        api.backup_statuses.get_mut(&3).unwrap().last_bkp_result = last.into();
+        let tasks = api.backup_tasks.as_mut().unwrap();
+        tasks.task_list.truncate(1);
+        tasks.task_list[0].state = state.into();
+        tasks.task_list[0].status = activity.into();
+        status(api)
+    }
+
+    #[test]
+    fn backup_row_follows_dsm_labels() {
+        for (state, st, last, verdict, problems) in [
+            (
+                "backupable",
+                "none",
+                "partial",
+                Warn,
+                vec!["warning: Backup to LOCAL"],
+            ),
+            (
+                "backupable",
+                "none",
+                "cancel",
+                Error,
+                vec!["canceled: Backup to LOCAL"],
+            ),
+            (
+                "backupable",
+                "none",
+                "none",
+                Warn,
+                vec!["result unknown: Backup to LOCAL"],
+            ),
+            // A busy task shows its activity, not an earlier failure.
+            ("backupable", "backup", "failed", Ok, vec![]),
+            // SNAIL: integrity check waiting for an offline target.
+            (
+                "error_detect",
+                "none",
+                "failed",
+                Info,
+                vec!["checking: Backup to LOCAL"],
+            ),
+            (
+                "unauth",
+                "none",
+                "done",
+                Error,
+                vec!["error: Backup to LOCAL"],
+            ),
+            (
+                "broken",
+                "none",
+                "done",
+                Error,
+                vec!["error: Backup to LOCAL"],
+            ),
+        ] {
+            let s = one_task(state, st, last);
+            assert_eq!(
+                (row(&s, Backups).verdict, row(&s, Backups).problems.clone()),
+                (verdict, problems.iter().map(|p| p.to_string()).collect()),
+                "{state}/{st}/{last}"
+            );
+        }
+    }
+
     #[test]
     fn healthy_backups_are_ok() {
+        // Task 3 ends `done` with error code 4401, which DSM shows as success.
         let mut api = fixtures();
-        api.backup_statuses.get_mut(&3).unwrap().last_bkp_error_code = 0;
         api.backup_tasks.as_mut().unwrap().task_list.truncate(1);
         let s = status(api);
         assert_eq!(
