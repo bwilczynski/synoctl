@@ -1,6 +1,8 @@
 //! NAS domain logic, ported from homelab-api/internal/{docker,storage,system}.
 //! One NAS per `Service`; IDs carry no device prefix.
 
+mod backup_logs;
+pub use backup_logs::{BackupLogFilter, BackupLogPage, Follower, follow_loop};
 mod backups;
 pub mod docker;
 mod info;

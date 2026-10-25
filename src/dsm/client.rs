@@ -10,11 +10,11 @@ use serde::de::DeserializeOwned;
 
 use super::session::SessionStore;
 use super::types::{
-    BackupTarget, BackupTaskDetail, BackupTaskList, BackupTaskStatus, ContainerDetailResponse,
-    ContainerList, ContainerResources, Envelope, ImageList, NetworkList, Storage, SystemInfo,
-    Utilization,
+    BackupLogList, BackupTarget, BackupTaskDetail, BackupTaskList, BackupTaskStatus,
+    ContainerDetailResponse, ContainerList, ContainerResources, Envelope, ImageList, NetworkList,
+    Storage, SystemInfo, Utilization,
 };
-use super::{DsmApi, backup_missing, container_not_found, docker_missing};
+use super::{BackupLogQuery, DsmApi, backup_missing, container_not_found, docker_missing};
 use crate::cache::Cache;
 use crate::config::{Config, Password};
 use crate::error::{Error, Result};
@@ -398,7 +398,9 @@ impl DsmClient {
             CallError::Code(API_MISSING) if api.starts_with("SYNO.Docker.") => {
                 docker_missing(&self.host)
             }
-            CallError::Code(API_MISSING) if api.starts_with("SYNO.Backup.") => {
+            CallError::Code(API_MISSING)
+                if api.starts_with("SYNO.Backup.") || api.starts_with("SYNO.SDS.Backup.") =>
+            {
                 backup_missing(&self.host)
             }
             CallError::Code(code) => Error::Dsm(format!("synology API {api} error code {code}")),
@@ -569,6 +571,23 @@ impl DsmApi for DsmClient {
     fn backup_target(&self, task_id: i64) -> Result<BackupTarget> {
         let extra = [("additional", TARGET_ADDITIONAL)];
         self.backup_read("SYNO.Backup.Target", "get", task_id, &extra)
+    }
+
+    fn backup_log(&self, q: &BackupLogQuery) -> Result<BackupLogList> {
+        const API: &str = "SYNO.SDS.Backup.Client.Common.Log";
+        let (offset, limit) = (q.offset.to_string(), q.limit.to_string());
+        let (from, to) = (q.from.map(|v| v.to_string()), q.to.map(|v| v.to_string()));
+        let mut params = vec![("offset", offset.as_str()), ("limit", limit.as_str())];
+        if let Some(from) = &from {
+            params.push(("filter_date_from", from));
+        }
+        if let Some(to) = &to {
+            params.push(("filter_date_to", to));
+        }
+        // Uncached: the log changes while a backup runs, and `-f` polls it.
+        self.authed(API, "list", "1", &params)
+            .and_then(|body| data(parse::<BackupLogList>(&body).map_err(CallError::Other)?))
+            .map_err(|e| self.call_error(API, e))
     }
 }
 
@@ -1202,5 +1221,94 @@ mod tests {
         mock_auth(&server);
         mock_login_error(&server, 400);
         assert_eq!(client(&server).login_check(), Err(AccessError::Login(400)));
+    }
+
+    const LOG: &str = "SYNO.SDS.Backup.Client.Common.Log";
+
+    fn log_ok() -> serde_json::Value {
+        json!({"success": true, "data": {"total": 7, "error_count": 0, "info_count": 0,
+            "log_list": [{"event": "[Local][T] Incomplete file backup.", "level": "warn",
+                          "time": "2026/10/25 01:16:42", "user": "SYSTEM"}]}})
+    }
+
+    #[test]
+    fn backup_log_sends_paging_and_window() {
+        let server = MockServer::start();
+        mock_auth(&server);
+        mock_login(&server, "S1");
+        let m = server.mock(|w, t| {
+            w.method(GET)
+                .path(ENTRY)
+                .query_param("api", LOG)
+                .query_param("method", "list")
+                .query_param("version", "1")
+                .query_param("offset", "1000")
+                .query_param("limit", "1000")
+                .query_param("filter_date_from", "100")
+                .query_param("filter_date_to", "200")
+                .query_param("_sid", "S1");
+            t.json_body(log_ok());
+        });
+        let q = BackupLogQuery {
+            offset: 1000,
+            limit: 1000,
+            from: Some(100),
+            to: Some(200),
+        };
+        let l = client(&server).backup_log(&q).unwrap();
+        m.assert();
+        assert_eq!(l.total, 7);
+        assert_eq!(l.log_list[0].level, "warn");
+        assert_eq!(l.log_list[0].time, "2026/10/25 01:16:42");
+    }
+
+    #[test]
+    fn backup_log_omits_absent_window() {
+        let server = MockServer::start();
+        mock_auth(&server);
+        mock_login(&server, "S1");
+        let m = server.mock(|w, t| {
+            w.path(ENTRY)
+                .query_param("api", LOG)
+                .query_param_missing("filter_date_from")
+                .query_param_missing("filter_date_to");
+            t.json_body(log_ok());
+        });
+        let q = BackupLogQuery {
+            limit: 10,
+            ..Default::default()
+        };
+        client(&server).backup_log(&q).unwrap();
+        m.assert();
+    }
+
+    #[test]
+    fn backup_log_is_never_cached() {
+        let server = MockServer::start();
+        let dir = tempfile::tempdir().unwrap();
+        mock_auth(&server);
+        mock_login(&server, "S1");
+        let m = mock_call(&server, LOG, "list", "S1", log_ok());
+        let c = cached(&server, &dir);
+        let q = BackupLogQuery {
+            limit: 10,
+            ..Default::default()
+        };
+        c.backup_log(&q).unwrap();
+        c.backup_log(&q).unwrap();
+        m.assert_calls(2);
+    }
+
+    #[test]
+    fn backup_log_api_missing_is_not_installed() {
+        let server = MockServer::start();
+        mock_auth(&server);
+        mock_login(&server, "S1");
+        mock_call(&server, LOG, "list", "S1", code(102));
+        let e = client(&server)
+            .backup_log(&BackupLogQuery::default())
+            .unwrap_err();
+        assert!(matches!(e, Error::NotInstalled(_)));
+        assert_eq!(e.to_string(), "Hyper Backup is not installed on nas");
     }
 }

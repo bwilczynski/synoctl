@@ -10,8 +10,9 @@ use std::thread::ScopedJoinHandle;
 
 use crate::error::Result;
 use types::{
-    BackupTarget, BackupTaskDetail, BackupTaskList, BackupTaskStatus, ContainerDetailResponse,
-    ContainerList, ContainerResources, ImageList, NetworkList, Storage, SystemInfo, Utilization,
+    BackupLogList, BackupTarget, BackupTaskDetail, BackupTaskList, BackupTaskStatus,
+    ContainerDetailResponse, ContainerList, ContainerResources, ImageList, NetworkList, Storage,
+    SystemInfo, Utilization,
 };
 
 /// Runs independent DSM reads concurrently, so a command waits for the
@@ -62,6 +63,18 @@ pub trait DsmApi: Sync {
     fn backup_task(&self, task_id: i64) -> Result<BackupTaskDetail>;
     fn backup_status(&self, task_id: i64) -> Result<BackupTaskStatus>;
     fn backup_target(&self, task_id: i64) -> Result<BackupTarget>;
+    /// One page of the Hyper Backup log; never cached.
+    fn backup_log(&self, q: &BackupLogQuery) -> Result<BackupLogList>;
+}
+
+/// A page of the Hyper Backup log. `from` and `to` are epoch seconds, both
+/// inclusive; `None` leaves that end open.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BackupLogQuery {
+    pub offset: usize,
+    pub limit: usize,
+    pub from: Option<i64>,
+    pub to: Option<i64>,
 }
 
 /// "Container Manager is not installed on <host>".

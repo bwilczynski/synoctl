@@ -396,6 +396,38 @@ pub struct BackupTask {
     /// e.g. `image:image_local`.
     #[serde(rename = "type")]
     pub kind: String,
+    /// The backup's directory at the destination, e.g. `host-01_1.hbk`.
+    /// Not unique: a local and a remote task can share it.
+    pub target_id: String,
+    /// `image_local`, `image_remote`, ….
+    pub transfer_type: String,
+}
+
+/// `SYNO.SDS.Backup.Client.Common.Log` `list`: one page of the Hyper Backup
+/// log, newest first. `total` counts the entries in the date window.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct BackupLogList {
+    pub total: i64,
+    #[serde(deserialize_with = "null_as_default")]
+    pub log_list: Vec<BackupLogRecord>,
+}
+
+/// One log entry as DSM sends it. It has no ID.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq, Hash)]
+#[serde(default)]
+pub struct BackupLogRecord {
+    /// The message, usually prefixed with `[Local][<task>]` or similar.
+    #[serde(deserialize_with = "null_as_default")]
+    pub event: String,
+    /// `info`, `warn` or `err`.
+    #[serde(deserialize_with = "null_as_default")]
+    pub level: String,
+    /// `YYYY/MM/DD HH:MM:SS` in the NAS's time zone.
+    #[serde(deserialize_with = "null_as_default")]
+    pub time: String,
+    #[serde(deserialize_with = "null_as_default")]
+    pub user: String,
 }
 
 /// `SYNO.Backup.Task` `get` with `additional=["repository","schedule"]`.
@@ -471,5 +503,14 @@ mod tests {
         };
         assert_eq!(b("/etc/localtime", "").host_path(), "/etc/localtime");
         assert_eq!(b("", "/docker/x").host_path(), "/docker/x");
+    }
+
+    #[test]
+    fn backup_log_record_tolerates_nulls() {
+        let l: BackupLogList = serde_json::from_str(
+            r#"{"total": 1, "log_list": [{"event": null, "level": null, "time": null, "user": null}]}"#,
+        )
+        .unwrap();
+        assert_eq!(l.log_list[0], BackupLogRecord::default());
     }
 }

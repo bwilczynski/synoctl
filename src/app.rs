@@ -9,8 +9,9 @@ use serde::Serialize;
 
 use crate::cache::Cache;
 use crate::cli::{
-    BackupsCommand, Cli, ColorMode, Command, ConfigCommand, ContainersCommand, DockerCommand,
-    ImagesCommand, NetworksCommand, OutputFormat, UpdatesCommand, UpdatesListArgs, VolumesCommand,
+    BackupLogsArgs, BackupsCommand, Cli, ColorMode, Command, ConfigCommand, ContainersCommand,
+    DockerCommand, ImagesCommand, NetworksCommand, OutputFormat, UpdatesCommand, UpdatesListArgs,
+    VolumesCommand,
 };
 use crate::completion;
 use crate::config;
@@ -18,11 +19,16 @@ use crate::dsm::client::DsmClient;
 use crate::dsm::session::SessionStore;
 use crate::error::{Error, Result};
 use crate::model::Ids;
+use crate::model::backup_log::BackupLogEntry;
 use crate::model::docker::{Action, ContainerStatus, UpdateStatus};
 use crate::releases::HttpReleases;
 use crate::render;
-use crate::service::{BackupFilter, ContainerFilter, Service, UpdateFilter, VolumeFilter, Warned};
+use crate::service::{
+    BackupFilter, BackupLogFilter, ContainerFilter, Service, UpdateFilter, VolumeFilter, Warned,
+    follow_loop,
+};
 use crate::setup;
+use crate::timespec;
 
 /// Entry point used by `main.rs`; returns the process exit code.
 pub fn main() -> i32 {
@@ -104,7 +110,97 @@ pub fn run(cli: Cli) -> Result<Outcome> {
             code: i32::from(status.has_error()),
         });
     }
+    if let Command::Backups {
+        command: BackupsCommand::Logs(args),
+    } = &cli.command
+    {
+        run_backup_logs(&svc, args, &ctx, &env)?;
+        return Ok(Outcome::ok(String::new()));
+    }
     execute(&svc, &cli.command, &ctx).map(Outcome::ok)
+}
+
+/// `backups logs` writes as it goes rather than returning one string, so
+/// `--follow` can stream and a closed pipe ends it quietly.
+fn run_backup_logs(
+    svc: &Service,
+    args: &BackupLogsArgs,
+    ctx: &Ctx,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Result<()> {
+    let local_now = ctx.now.to_zoned(ctx.tz.clone());
+    let at = |when: &Option<String>| {
+        when.as_deref()
+            .map(|w| timespec::parse(w, &local_now))
+            .transpose()
+    };
+    let (since, until) = (at(&args.since)?, at(&args.until)?);
+    if let (Some(since), Some(until)) = (since, until)
+        && since > until
+    {
+        return Err(Error::Other("--since is after --until".into()));
+    }
+    let filter = BackupLogFilter {
+        task: args.task.clone(),
+        since,
+        until,
+        min_level: args.priority.map(Into::into),
+        lines: args.lines.or(default_lines(
+            args.follow,
+            since.is_some() || until.is_some(),
+        )),
+        newest_first: args.reverse,
+    };
+    let page = svc.backup_logs(&filter, ctx.now)?;
+
+    let mut stdout = std::io::stdout().lock();
+    let mut emit = |entries: &[BackupLogEntry]| -> Result<bool> {
+        let mut buf = String::new();
+        for e in entries {
+            match ctx.out {
+                OutputFormat::Json => buf.push_str(&render::backup_logs::json_line(e, &ctx.tz)?),
+                _ => buf.push_str(&render::backup_logs::line(e, &ctx.tz, ctx.color)),
+            }
+        }
+        write_flush(&mut stdout, &buf)
+    };
+    if !args.follow {
+        emit(&page.entries)?;
+        return Ok(());
+    }
+    let (first, mut follower) = page.follow(filter);
+    if !emit(&first)? {
+        return Ok(());
+    }
+    follow_loop(
+        || follower.poll(svc, now(env)),
+        emit,
+        std::thread::sleep,
+        |w| eprintln!("warning: {w}"),
+    )
+}
+
+/// How many entries `backups logs` shows without `-n`: the whole window when
+/// one is given (even with `-f`, as journalctl), else 10 when following,
+/// else 50.
+fn default_lines(follow: bool, window: bool) -> Option<usize> {
+    if window {
+        None
+    } else if follow {
+        Some(10)
+    } else {
+        Some(50)
+    }
+}
+
+/// Writes and flushes; `Ok(false)` when the reader has gone.
+fn write_flush(w: &mut impl std::io::Write, s: &str) -> Result<bool> {
+    use std::io::ErrorKind;
+    match w.write_all(s.as_bytes()).and_then(|()| w.flush()) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == ErrorKind::BrokenPipe => Ok(false),
+        Err(e) => Err(Error::Other(format!("write output: {e}"))),
+    }
 }
 
 fn run_config(
@@ -281,6 +377,7 @@ fn execute(svc: &Service, cmd: &Command, ctx: &Ctx) -> Result<String> {
             BackupsCommand::Get { id } => emit(out, &warned(svc.get_backup(id)?), |d| {
                 render::backups::get(d, tz, color)
             }),
+            BackupsCommand::Logs(_) => unreachable!("backups logs streams its output from run"),
         },
         Command::Docker { command } => docker(svc, command, ctx),
         Command::Status | Command::Config { .. } | Command::Completions { .. } => {

@@ -96,6 +96,7 @@ mod with_fixtures {
     fn other_ids_complete() {
         assert_eq!(ids(&["volumes", "get", ""]), ["volume_1"]);
         assert_eq!(ids(&["backups", "get", ""]), ["3", "4"]);
+        assert_eq!(ids(&["backups", "logs", ""]), ["3", "4"]);
         assert_eq!(ids(&["docker", "images", "get", "bb"]), ["bbccddeeff00"]);
         assert_eq!(
             ids(&["docker", "networks", "get", "im"]),

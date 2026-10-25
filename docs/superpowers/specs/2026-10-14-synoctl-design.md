@@ -44,8 +44,8 @@ common crate.
 ### Non-goals
 
 Multiple NASes per invocation; 2-step verification (OTP) login; scheduled
-tasks and backup logs (`ListScheduledTasks`, `ListBackupLogs` are unused in
-homelab-api and are not ported); write operations beyond container
+tasks (`ListScheduledTasks` is unused in homelab-api and is not ported; backup
+logs are added by `2026-10-25-backup-logs-design.md`); write operations beyond container
 start/stop/restart; VHS demo GIFs (after v0.1).
 
 ## Commands

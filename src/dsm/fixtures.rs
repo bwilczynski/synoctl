@@ -9,10 +9,11 @@ use std::sync::{Arc, Mutex};
 use serde::de::DeserializeOwned;
 
 use super::types::{
-    BackupTarget, BackupTaskDetail, BackupTaskList, BackupTaskStatus, ContainerDetailResponse,
-    ContainerList, ContainerResources, ImageList, NetworkList, Storage, SystemInfo, Utilization,
+    BackupLogList, BackupLogRecord, BackupTarget, BackupTaskDetail, BackupTaskList,
+    BackupTaskStatus, ContainerDetailResponse, ContainerList, ContainerResources, ImageList,
+    NetworkList, Storage, SystemInfo, Utilization,
 };
-use super::{DsmApi, backup_missing, container_not_found, docker_missing};
+use super::{BackupLogQuery, DsmApi, backup_missing, container_not_found, docker_missing};
 use crate::error::{Error, Result};
 
 #[derive(Debug, Clone, Default)]
@@ -36,6 +37,8 @@ pub struct FixtureApi {
     pub backup_details: BTreeMap<i64, BackupTaskDetail>,
     pub backup_statuses: BTreeMap<i64, BackupTaskStatus>,
     pub backup_targets: BTreeMap<i64, BackupTarget>,
+    /// `dsm-backup-log.json`'s entries, newest first as DSM sends them.
+    pub backup_log: Vec<BackupLogRecord>,
     /// Reads that fail, by method name (`"storage"`, …).
     pub fail_only: Vec<&'static str>,
     /// When true every call fails, simulating an unreachable NAS.
@@ -89,6 +92,9 @@ impl FixtureApi {
             backup_details,
             backup_statuses,
             backup_targets,
+            backup_log: read_if_present::<BackupLogList>(dir, "dsm-backup-log.json")?
+                .unwrap_or_default()
+                .log_list,
             ..Default::default()
         })
     }
@@ -145,6 +151,17 @@ fn read<T: DeserializeOwned>(dir: &Path, name: &str) -> Result<T> {
 
 fn read_if_present<T: DeserializeOwned>(dir: &Path, name: &str) -> Result<Option<T>> {
     dir.join(name).exists().then(|| read(dir, name)).transpose()
+}
+
+/// A DSM log time read as UTC, in epoch seconds.
+fn utc_seconds(time: &str) -> Option<i64> {
+    let dt = jiff::civil::DateTime::strptime("%Y/%m/%d %H:%M:%S", time).ok()?;
+    Some(
+        dt.to_zoned(jiff::tz::TimeZone::UTC)
+            .ok()?
+            .timestamp()
+            .as_second(),
+    )
 }
 
 fn missing(what: &str, id: i64) -> Error {
@@ -230,6 +247,31 @@ impl DsmApi for FixtureApi {
         self.backup("backup_target")?;
         let target = self.backup_targets.get(&task_id);
         target.cloned().ok_or_else(|| missing("target", task_id))
+    }
+
+    /// Applies the date window (times read as UTC, the fixture NAS's zone)
+    /// and paging, as DSM does.
+    fn backup_log(&self, q: &BackupLogQuery) -> Result<BackupLogList> {
+        self.backup("backup_log")?;
+        let in_window: Vec<&BackupLogRecord> = self
+            .backup_log
+            .iter()
+            .filter(|r| {
+                let Some(t) = utc_seconds(&r.time) else {
+                    return true;
+                };
+                q.from.is_none_or(|f| t >= f) && q.to.is_none_or(|to| t <= to)
+            })
+            .collect();
+        Ok(BackupLogList {
+            total: in_window.len() as i64,
+            log_list: in_window
+                .into_iter()
+                .skip(q.offset)
+                .take(q.limit)
+                .cloned()
+                .collect(),
+        })
     }
 }
 
@@ -367,5 +409,59 @@ mod tests {
         assert!(api.system_info().is_ok());
         let api = FixtureApi { fail: true, ..api };
         assert!(api.system_info().is_err());
+    }
+
+    fn log_query(
+        offset: usize,
+        limit: usize,
+        from: Option<i64>,
+        to: Option<i64>,
+    ) -> BackupLogQuery {
+        BackupLogQuery {
+            offset,
+            limit,
+            from,
+            to,
+        }
+    }
+
+    #[test]
+    fn backup_log_pages_and_filters() {
+        let api = api();
+        let l = api.backup_log(&log_query(0, 5, None, None)).unwrap();
+        assert_eq!((l.total, l.log_list.len()), (16, 5));
+        assert_eq!(l.log_list[0].time, "2026/04/25 09:06:49");
+        let l = api.backup_log(&log_query(15, 5, None, None)).unwrap();
+        assert_eq!(l.log_list.len(), 1);
+        assert_eq!(l.log_list[0].time, "2026/04/24 19:00:00");
+        // 2026-04-25T00:00:00Z
+        let l = api
+            .backup_log(&log_query(0, 100, Some(1777075200), None))
+            .unwrap();
+        assert_eq!(l.total, 12);
+        // 2026-04-25T01:16:48Z, both bounds inclusive
+        let l = api
+            .backup_log(&log_query(0, 100, Some(1777079808), Some(1777079808)))
+            .unwrap();
+        assert_eq!(l.total, 2);
+    }
+
+    #[test]
+    fn backup_log_without_hyper_backup_is_not_installed() {
+        let api = FixtureApi {
+            backup_tasks: None,
+            ..api()
+        };
+        let e = api.backup_log(&log_query(0, 5, None, None)).unwrap_err();
+        assert!(matches!(e, Error::NotInstalled(_)));
+    }
+
+    #[test]
+    fn loads_backup_log_and_task_targets() {
+        let api = api();
+        assert_eq!(api.backup_log.len(), 16);
+        let tasks = api.backup_tasks.unwrap().task_list;
+        assert_eq!(tasks[1].transfer_type, "image_remote");
+        assert_eq!(tasks[1].target_id, "host-01_1.hbk");
     }
 }

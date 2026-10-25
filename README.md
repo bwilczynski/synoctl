@@ -122,6 +122,7 @@ synoctl info
 synoctl utilization
 synoctl volumes list [--status STATUS] [--wide] | get <id>
 synoctl backups list [--status STATUS] [--result RESULT] [--wide] | get <id>
+synoctl backups logs [<id>] [-n N] [-S WHEN] [-U WHEN] [-p LEVEL] [-r] [-f]
 synoctl docker containers list [--status STATUS | --all] [--wide] | get <name>
 synoctl docker containers start|stop|restart <name>
 synoctl docker images list | get <id>
@@ -172,6 +173,33 @@ The command exits 1 when a row is `error`. A row whose data cannot be read
 says so and shows `unknown` without failing the command; the container and
 backup rows are left out when Container Manager or Hyper Backup is not
 installed.
+
+### Backup logs
+
+When `backups list` says a task's last run ended in `warning`, `synoctl backups
+logs` shows why. It reads Hyper Backup's log the way `journalctl` reads the
+journal: the 50 most recent entries, oldest first, one per line, with the task
+each belongs to.
+
+```sh
+$ synoctl backups logs 3 -p warning --since yesterday
+Apr 25 01:16:48 Backup to LOCAL: Incomplete file backup. (The file is a special file.) [/volume1/docker/app/data/db.sock]
+Apr 25 01:16:48 Backup to LOCAL: Incomplete file backup. (The file is a special file.) [/volume1/docker/app/data/app.sock]
+```
+
+- A task ID keeps that task's entries; without one, every task's entries are
+  shown, and entries that name no known task show `-`.
+- `-n N` shows the last N entries; `-S`/`--since` and `-U`/`--until` take
+  `now`, `today`, `yesterday`, `-2h`, `"2h ago"` or `YYYY-MM-DD [HH:MM[:SS]]`
+  in local time, and without `-n` show the whole window.
+- `-p info|warning|error` keeps that level and above; on a terminal, warnings
+  are yellow and errors red.
+- `-r` puts the newest first; `-f` keeps running and prints new entries as they
+  arrive (checking every 5 seconds).
+- `-o json` prints one JSON object per line.
+
+The NAS writes log times in its own zone; set `timezone` in the config when it
+differs from yours.
 
 ### Docker updates
 
