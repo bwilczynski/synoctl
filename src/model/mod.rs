@@ -159,6 +159,8 @@ pub struct VolumeDisk {
 pub enum BackupTaskStatus {
     Idle,
     Running,
+    /// Hyper Backup's integrity check ("Checking backup integrity...").
+    Checking,
     Suspended,
     Error,
 }
@@ -167,9 +169,11 @@ pub enum BackupTaskStatus {
 #[serde(rename_all = "camelCase")]
 pub enum BackupTaskResult {
     Success,
+    /// DSM's "Partial success".
     Warning,
     Failed,
-    Skipped,
+    Canceled,
+    /// No backup yet, waiting to check the server, or not readable.
     Unknown,
 }
 
@@ -268,8 +272,8 @@ impl NasStatus {
 
 labels!(VolumeStatus { Normal => "normal", Degraded => "degraded", Repairing => "repairing", Crashed => "crashed" });
 labels!(DiskStatus { Normal => "normal", Warning => "warning", Failing => "failing", Critical => "critical" });
-labels!(BackupTaskStatus { Idle => "idle", Running => "running", Suspended => "suspended", Error => "error" });
-labels!(BackupTaskResult { Success => "success", Warning => "warning", Failed => "failed", Skipped => "skipped", Unknown => "unknown" });
+labels!(BackupTaskStatus { Idle => "idle", Running => "running", Checking => "checking", Suspended => "suspended", Error => "error" });
+labels!(BackupTaskResult { Success => "success", Warning => "warning", Failed => "failed", Canceled => "canceled", Unknown => "unknown" });
 labels!(Verdict { Ok => "ok", Info => "info", Warn => "warn", Error => "error", Unknown => "unknown" });
 
 #[cfg(test)]
@@ -306,6 +310,7 @@ mod tests {
         for v in [
             BackupTaskStatus::Idle,
             BackupTaskStatus::Running,
+            BackupTaskStatus::Checking,
             BackupTaskStatus::Suspended,
             BackupTaskStatus::Error,
         ] {
@@ -315,7 +320,7 @@ mod tests {
             BackupTaskResult::Success,
             BackupTaskResult::Warning,
             BackupTaskResult::Failed,
-            BackupTaskResult::Skipped,
+            BackupTaskResult::Canceled,
             BackupTaskResult::Unknown,
         ] {
             assert_eq!(v.as_str(), json(v));

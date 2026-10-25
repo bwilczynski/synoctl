@@ -389,7 +389,8 @@ pub struct BackupTaskList {
 pub struct BackupTask {
     pub task_id: i64,
     pub name: String,
-    /// `backupable`, `running`, `suspend`, `error`.
+    /// `backupable`, `error_detect`, `broken`, `unauth`, … (see
+    /// `service::backups::backup_status`).
     pub state: String,
     pub status: String,
     /// e.g. `image:image_local`.
@@ -427,8 +428,10 @@ pub struct BackupFolder {
 pub struct BackupTaskStatus {
     pub task_id: i64,
     pub state: String,
-    /// `done`, `error`, `skip`, …
+    /// `done`, `partial`, `failed`, `cancel`, `suspend`, `none`, …
     pub last_bkp_result: String,
+    /// Settings changed since the last backup; DSM then shows "No backup yet".
+    pub is_modified: bool,
     pub last_bkp_error_code: i64,
     pub last_bkp_success_time: String,
     pub last_bkp_time: String,

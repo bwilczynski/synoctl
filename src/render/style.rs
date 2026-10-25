@@ -60,6 +60,7 @@ pub fn backup_status(s: BackupTaskStatus, on: bool) -> String {
     let p = match s {
         BackupTaskStatus::Idle => Paint::Dim,
         BackupTaskStatus::Running => Paint::Green,
+        BackupTaskStatus::Checking => Paint::Blue,
         BackupTaskStatus::Suspended => Paint::Yellow,
         BackupTaskStatus::Error => Paint::Red,
     };
@@ -69,8 +70,8 @@ pub fn backup_status(s: BackupTaskStatus, on: bool) -> String {
 pub fn backup_result(r: BackupTaskResult, on: bool) -> String {
     let p = match r {
         BackupTaskResult::Success => Paint::Green,
-        BackupTaskResult::Warning | BackupTaskResult::Skipped => Paint::Yellow,
-        BackupTaskResult::Failed => Paint::Red,
+        BackupTaskResult::Warning => Paint::Yellow,
+        BackupTaskResult::Failed | BackupTaskResult::Canceled => Paint::Red,
         BackupTaskResult::Unknown => Paint::Dim,
     };
     paint(r.as_str(), p, on)

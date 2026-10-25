@@ -160,8 +160,13 @@ line per area with a verdict and the culprits named below it:
 | VOLUMES | volume or storage pool degraded or repairing, or 80% used | volume or storage pool crashed, or 95% used |
 | DISKS | disk status warning, or 50 °C | failing or critical |
 | CONTAINERS | a container not running | a dead container |
-| BACKUPS | last result warning or skipped, task suspended, result unknown | last result failed |
+| BACKUPS | idle task's last run a partial success (`warning`) or not known yet, task suspended | idle task's last run failed or canceled, task in error (authentication failed, crashed) |
 | UPDATES | `info` when a container is behind its latest release | |
+
+Backup tasks read as Hyper Backup's own task list does: a busy task shows what
+it is doing (`running`, or `checking` during an integrity check, which makes
+the row `info`) rather than its last result, and a run that ended `done` is a
+success whatever error code DSM attached.
 
 The command exits 1 when a row is `error`. A row whose data cannot be read
 says so and shows `unknown` without failing the command; the container and

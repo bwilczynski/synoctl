@@ -141,11 +141,12 @@ fn ok_or_warn<T>(r: Result<T>, name: &str, what: &str, warnings: &mut Vec<String
 }
 
 pub(crate) fn task(t: &types::BackupTask, status: Option<&types::BackupTaskStatus>) -> BackupTask {
+    let last = status.map(|s| s.last_bkp_result.as_str());
     BackupTask {
         id: t.task_id.to_string(),
         name: t.name.clone(),
         kind: backup_type(&t.kind),
-        status: backup_status(&t.state),
+        status: backup_status(&t.state, &t.status, last),
         last_result: backup_result(status),
     }
 }
@@ -156,26 +157,80 @@ pub(crate) fn parse_backup_time(s: &str, tz: &TimeZone) -> Option<Timestamp> {
     dt.to_zoned(tz.clone()).ok().map(|z| z.timestamp())
 }
 
-/// `done` with a non-zero error code finished with warnings.
+// The two mappings below follow Hyper Backup's own UI (3.0.x, `util.js`:
+// `getStatusIcon`, `getStatusText`, `GetBkpResultStr`), which labels a task
+// from its `state`, then its `status`, then `last_bkp_result`. DSM ignores
+// `last_bkp_error_code` there: 4401 is a generic internal error that
+// successful tasks carry too.
+
+/// The task's last run, as DSM labels it once the task is idle.
 pub(crate) fn backup_result(status: Option<&types::BackupTaskStatus>) -> BackupTaskResult {
     let Some(s) = status else {
         return BackupTaskResult::Unknown;
     };
     match s.last_bkp_result.as_str() {
-        "done" if s.last_bkp_error_code != 0 => BackupTaskResult::Warning,
-        "done" => BackupTaskResult::Success,
-        "error" => BackupTaskResult::Failed,
-        "skip" => BackupTaskResult::Skipped,
-        _ => BackupTaskResult::Unknown,
+        // "No backup yet" when the settings changed since.
+        "done" | "success" | "partial" if s.is_modified => BackupTaskResult::Unknown,
+        "done" | "success" => BackupTaskResult::Success,
+        "partial" => BackupTaskResult::Warning,
+        "cancel" => BackupTaskResult::Canceled,
+        // "No backup yet", "Waiting to check server status", and a suspended
+        // run (the task's status says so) have no outcome yet. An absent
+        // field is not DSM's to label.
+        "none" | "failed_checking" | "backingup" | "resuming" | "suspend" | "" => {
+            BackupTaskResult::Unknown
+        }
+        // `failed`, `discard`, `version_delete_failed`, and anything else:
+        // DSM shows a failure.
+        _ => BackupTaskResult::Failed,
     }
 }
 
-pub(crate) fn backup_status(state: &str) -> BackupTaskStatus {
+/// What the task is doing, from the task list's `state` and `status`; `last`
+/// is `last_bkp_result`, which marks a suspended task.
+pub(crate) fn backup_status(state: &str, status: &str, last: Option<&str>) -> BackupTaskStatus {
+    use BackupTaskStatus::*;
+    let idle = || {
+        if last == Some("suspend") {
+            Suspended
+        } else {
+            Idle
+        }
+    };
     match state {
-        "running" => BackupTaskStatus::Running,
-        "suspend" => BackupTaskStatus::Suspended,
-        "error" => BackupTaskStatus::Error,
-        _ => BackupTaskStatus::Idle,
+        // DSM treats a task without a state as backupable.
+        "backupable" | "" => match status {
+            "backup"
+            | "waiting"
+            | "suspending"
+            | "discarding"
+            | "canceling"
+            | "wait_discard"
+            | "wait_version_delete"
+            | "version_deleting"
+            | "preparing_version_delete" => Running,
+            "discard_failed" => Error,
+            _ => idle(),
+        },
+        "exportable" => match status {
+            "backup" | "waiting" | "suspending" | "discarding" | "canceling" => Running,
+            "discard_failed" => Error,
+            _ => idle(),
+        },
+        "importable" => match status {
+            "none" => Idle,
+            "canceling" => Error,
+            _ => Running,
+        },
+        "relinkable" => match status {
+            "relink" | "relink_waiting" | "backup" | "waiting" => Running,
+            _ => Error,
+        },
+        "error_detect" => Checking,
+        "broken" if status == "deleting" => Running,
+        "restore_only" => Idle,
+        // `unauth`, `endofservice`, `broken`, and states DSM does not know.
+        _ => Error,
     }
 }
 
@@ -216,7 +271,7 @@ mod tests {
                     name: "Backup to LOCAL".into(),
                     kind: "hyperBackup".into(),
                     status: BackupTaskStatus::Idle,
-                    last_result: BackupTaskResult::Warning,
+                    last_result: BackupTaskResult::Success,
                 },
                 BackupTask {
                     id: "4".into(),
@@ -243,7 +298,7 @@ mod tests {
         let w = s.get_backup("3").unwrap();
         assert!(w.warnings.is_empty(), "{:?}", w.warnings);
         let d = w.data;
-        assert_eq!(d.last_result, BackupTaskResult::Warning);
+        assert_eq!(d.last_result, BackupTaskResult::Success);
         assert_eq!(d.last_run_at, Some(ts("2026-04-24T00:30:00Z")));
         assert_eq!(d.next_run_at, Some(ts("2026-04-24T23:00:00Z")));
         assert_eq!(d.size, Some(3206674163));
@@ -305,7 +360,7 @@ mod tests {
         };
         assert_eq!(
             ids(BackupFilter {
-                result: Some(BackupTaskResult::Warning),
+                result: Some(BackupTaskResult::Success),
                 ..Default::default()
             }),
             ["3"]
@@ -327,6 +382,51 @@ mod tests {
     }
 
     #[test]
+    fn real_tasks_read_as_dsm_shows_them() {
+        // 2026-10-25, DSM 7.1.1 / Hyper Backup 3.0.2. Hyper Backup showed
+        // "Success" for the first and "Checking backup integrity... Waiting to
+        // check server status" (target off-line) for the second.
+        let tasks: types::BackupTaskList = serde_json::from_str(
+            r#"{"task_list": [
+                {"task_id": 3, "name": "Backup to LOCAL", "state": "backupable",
+                 "status": "none", "type": "image:image_local"},
+                {"task_id": 4, "name": "Backup to REMOTE", "state": "error_detect",
+                 "status": "none", "type": "image:image_remote"}
+            ]}"#,
+        )
+        .unwrap();
+        let local: types::BackupTaskStatus = serde_json::from_str(
+            r#"{"is_modified": false, "last_bkp_error": "", "last_bkp_error_code": 4401,
+                "last_bkp_result": "done", "last_bkp_time": "2026/10/25 01:27",
+                "state": "backupable", "status": "none", "task_id": 3}"#,
+        )
+        .unwrap();
+        let remote: types::BackupTaskStatus = serde_json::from_str(
+            r#"{"is_modified": false, "last_bkp_error": "", "last_bkp_error_code": 4401,
+                "last_bkp_result": "failed", "last_bkp_time": "2026/10/25 03:25",
+                "state": "error_detect", "status": "detect_waiting", "task_id": 4}"#,
+        )
+        .unwrap();
+        let got: Vec<_> = [
+            (&tasks.task_list[0], &local),
+            (&tasks.task_list[1], &remote),
+        ]
+        .into_iter()
+        .map(|(t, s)| {
+            let t = task(t, Some(s));
+            (t.status, t.last_result)
+        })
+        .collect();
+        assert_eq!(
+            got,
+            [
+                (BackupTaskStatus::Idle, BackupTaskResult::Success),
+                (BackupTaskStatus::Checking, BackupTaskResult::Failed),
+            ]
+        );
+    }
+
+    #[test]
     fn hyper_backup_missing_is_an_error() {
         let mut api = fixtures();
         api.backup_tasks = None;
@@ -337,39 +437,80 @@ mod tests {
     }
 
     #[test]
-    fn result_maps() {
-        let st = |r: &str, code| types::BackupTaskStatus {
+    fn result_maps_like_dsm() {
+        use BackupTaskResult::*;
+        let st = |r: &str, modified| types::BackupTaskStatus {
             last_bkp_result: r.into(),
-            last_bkp_error_code: code,
+            last_bkp_error_code: 4401,
+            is_modified: modified,
             ..Default::default()
         };
-        assert_eq!(backup_result(None), BackupTaskResult::Unknown);
-        assert_eq!(
-            backup_result(Some(&st("done", 0))),
-            BackupTaskResult::Success
-        );
-        assert_eq!(
-            backup_result(Some(&st("done", 4401))),
-            BackupTaskResult::Warning
-        );
-        assert_eq!(
-            backup_result(Some(&st("error", 0))),
-            BackupTaskResult::Failed
-        );
-        assert_eq!(
-            backup_result(Some(&st("skip", 0))),
-            BackupTaskResult::Skipped
-        );
-        assert_eq!(backup_result(Some(&st("", 0))), BackupTaskResult::Unknown);
+        assert_eq!(backup_result(None), Unknown);
+        for (raw, want) in [
+            // The error code does not matter: DSM shows "Success".
+            ("done", Success),
+            ("success", Success),
+            ("partial", Warning),
+            ("cancel", Canceled),
+            ("failed", Failed),
+            ("discard", Failed),
+            ("version_delete_failed", Failed),
+            ("error", Failed),
+            ("none", Unknown),
+            ("failed_checking", Unknown),
+            ("backingup", Unknown),
+            ("resuming", Unknown),
+            ("suspend", Unknown),
+            ("", Unknown),
+        ] {
+            assert_eq!(backup_result(Some(&st(raw, false))), want, "{raw}");
+        }
+        for raw in ["done", "success", "partial"] {
+            assert_eq!(backup_result(Some(&st(raw, true))), Unknown, "{raw}");
+        }
+        assert_eq!(backup_result(Some(&st("failed", true))), Failed);
     }
 
     #[test]
-    fn state_and_type_map() {
-        assert_eq!(backup_status("backupable"), BackupTaskStatus::Idle);
-        assert_eq!(backup_status("running"), BackupTaskStatus::Running);
-        assert_eq!(backup_status("suspend"), BackupTaskStatus::Suspended);
-        assert_eq!(backup_status("error"), BackupTaskStatus::Error);
-        assert_eq!(backup_status("other"), BackupTaskStatus::Idle);
+    fn status_maps_like_dsm() {
+        use BackupTaskStatus::*;
+        for (state, status, last, want) in [
+            ("backupable", "none", Some("done"), Idle),
+            ("backupable", "none", None, Idle),
+            ("backupable", "none", Some("suspend"), Suspended),
+            ("", "none", Some("done"), Idle),
+            ("backupable", "backup", Some("done"), Running),
+            ("backupable", "waiting", None, Running),
+            ("backupable", "version_deleting", None, Running),
+            ("backupable", "wait_discard", None, Running),
+            ("backupable", "discard_failed", None, Error),
+            // SNAIL: the integrity check waits for an offline target.
+            ("error_detect", "none", Some("failed"), Checking),
+            ("error_detect", "detect_waiting", Some("failed"), Checking),
+            ("unauth", "none", None, Error),
+            ("endofservice", "none", None, Error),
+            ("broken", "none", None, Error),
+            ("broken", "deleting", None, Running),
+            ("restore_only", "none", None, Idle),
+            ("exportable", "backup", None, Running),
+            ("exportable", "none", Some("suspend"), Suspended),
+            ("importable", "none", None, Idle),
+            ("importable", "relink", None, Running),
+            ("importable", "canceling", None, Error),
+            ("relinkable", "relink", None, Running),
+            ("relinkable", "none", None, Error),
+            ("running", "none", None, Error),
+        ] {
+            assert_eq!(
+                backup_status(state, status, last),
+                want,
+                "{state}/{status}/{last:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn type_maps() {
         assert_eq!(backup_type("image:image_local"), "hyperBackup");
         assert_eq!(backup_type("cloud_glacier"), "glacierBackup");
         assert_eq!(backup_type("rsync"), "rsync");
