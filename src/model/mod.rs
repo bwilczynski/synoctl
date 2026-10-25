@@ -5,6 +5,7 @@
 use jiff::Timestamp;
 use serde::Serialize;
 
+pub mod backup_log;
 pub mod docker;
 
 /// `as_str()` for an enum: the same text its JSON value has, for tables.

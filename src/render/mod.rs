@@ -1,6 +1,7 @@
 //! Table rendering, ported from hlctl's docker, storage and system
 //! templates (homelab-cli/internal/cli/{docker,storage,system}/templates).
 
+pub mod backup_logs;
 pub mod backups;
 pub mod check;
 pub mod docker;

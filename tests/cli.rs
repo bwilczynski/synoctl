@@ -329,6 +329,134 @@ mod with_fixtures {
             "{out}"
         );
     }
+
+    #[test]
+    fn backup_logs_priority_warning() {
+        let o = run(&["backups", "logs", "-p", "warning"]);
+        assert!(o.status.success(), "{}", stderr(&o));
+        assert_eq!(
+            stdout(&o),
+            "Apr 24 21:49:38 Backup to LOCAL: Exception occurred while backing up data.\n\
+             Apr 24 21:50:01 Backup to LOCAL: Failed to run backup task.\n\
+             Apr 25 01:16:48 Backup to LOCAL: Incomplete file backup. (The file is a special file.) [/volume1/docker/app/data/db.sock]\n\
+             Apr 25 01:16:48 Backup to LOCAL: Incomplete file backup. (The file is a special file.) [/volume1/docker/app/data/app.sock]\n"
+        );
+    }
+
+    #[test]
+    fn backup_logs_for_one_task() {
+        let out = stdout(&run(&["backups", "logs", "4"]));
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 4);
+        for (line, time) in lines
+            .iter()
+            .zip(["03:00:25", "03:24:16", "05:00:17", "05:30:24"])
+        {
+            assert!(
+                line.starts_with(&format!("Apr 25 {time} Backup to REMOTE: ")),
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn backup_logs_lines_and_reverse() {
+        let times = |args: &[&str]| -> Vec<String> {
+            stdout(&run(args))
+                .lines()
+                .map(|l| l[7..15].to_string())
+                .collect()
+        };
+        assert_eq!(
+            times(&["backups", "logs", "-n", "2"]),
+            ["05:30:24", "09:06:49"]
+        );
+        assert_eq!(
+            times(&["backups", "logs", "-n", "2", "-r"]),
+            ["09:06:49", "05:30:24"]
+        );
+    }
+
+    #[test]
+    fn backup_logs_window() {
+        let o = run(&[
+            "backups",
+            "logs",
+            "-S",
+            "2026-04-24 19:00",
+            "-U",
+            "2026-04-24 20:00",
+        ]);
+        assert_eq!(
+            stdout(&o),
+            "Apr 24 19:00:00 -: [Local][Backup to OLD] Backup task finished successfully.\n\
+             Apr 24 20:00:00 Backup to LOCAL: Ready to delete version [2026-03-11 01:00:22] from task [Backup to LOCAL].\n"
+        );
+    }
+
+    #[test]
+    fn backup_logs_rotation_goes_to_local_task() {
+        let o = run(&[
+            "backups",
+            "logs",
+            "-S",
+            "2026-04-25 01:27:55",
+            "-U",
+            "2026-04-25 01:27:55",
+        ]);
+        assert_eq!(
+            stdout(&o),
+            "Apr 25 01:27:55 Backup to LOCAL: [backup] Version rotation completed from ID [host-01_1.hbk].\n"
+        );
+    }
+
+    #[test]
+    fn backup_logs_json() {
+        let o = run(&["backups", "logs", "-n", "1", "-o", "json"]);
+        assert_eq!(
+            stdout(&o),
+            "{\"time\":\"2026-04-25T09:06:49+00:00\",\"level\":\"info\",\
+             \"task\":{\"id\":\"3\",\"name\":\"Backup to LOCAL\"},\"user\":\"SYSTEM\",\
+             \"message\":\"Backup integrity check is finished. No error was found.\"}\n"
+        );
+    }
+
+    #[test]
+    fn backup_logs_unknown_task() {
+        let o = run(&["backups", "logs", "99"]);
+        assert_eq!(o.status.code(), Some(1));
+        assert_eq!(stderr(&o), "Error: Backup task not found: 99\n");
+    }
+
+    #[test]
+    fn backup_logs_rejected_flags() {
+        for args in [["-f", "-U", "now"].as_slice(), &["-f", "-r"]] {
+            let o = run(&[&["backups", "logs"], args].concat());
+            assert_eq!(o.status.code(), Some(2), "{args:?}");
+            assert!(stderr(&o).contains("cannot be used with"), "{}", stderr(&o));
+        }
+    }
+
+    #[test]
+    fn backup_logs_since_after_until() {
+        let o = run(&["backups", "logs", "-S", "today", "-U", "yesterday"]);
+        assert_eq!(o.status.code(), Some(1));
+        assert!(
+            stderr(&o).contains("--since is after --until"),
+            "{}",
+            stderr(&o)
+        );
+    }
+
+    #[test]
+    fn backup_logs_ids_output_is_rejected() {
+        let o = run(&["backups", "logs", "-o", "ids"]);
+        assert_eq!(o.status.code(), Some(1));
+        assert_eq!(
+            stderr(&o),
+            "Error: -o ids is only supported by list commands\n"
+        );
+    }
 }
 
 #[test]

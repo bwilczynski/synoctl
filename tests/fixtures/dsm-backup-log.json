@@ -1,0 +1,106 @@
+{
+  "data": {
+    "error_count": 2,
+    "info_count": 12,
+    "log_list": [
+      {
+        "event": "[Local][Backup to LOCAL] Backup integrity check is finished. No error was found.",
+        "level": "info",
+        "time": "2026/04/25 09:06:49",
+        "user": "SYSTEM"
+      },
+      {
+        "event": "[Network][Backup to REMOTE] Data integrity check finished. 1.2 GB data checked this time.",
+        "level": "info",
+        "time": "2026/04/25 05:30:24",
+        "user": "SYSTEM"
+      },
+      {
+        "event": "[Network][Backup to REMOTE] Backup integrity check has started.",
+        "level": "info",
+        "time": "2026/04/25 05:00:17",
+        "user": "SYSTEM"
+      },
+      {
+        "event": "[Network][Backup to REMOTE] Backup task finished successfully. [1200 files scanned] [1200 files unchanged]",
+        "level": "info",
+        "time": "2026/04/25 03:24:16",
+        "user": "SYSTEM"
+      },
+      {
+        "event": "[Network][Backup to REMOTE] Backup task started.",
+        "level": "info",
+        "time": "2026/04/25 03:00:25",
+        "user": "SYSTEM"
+      },
+      {
+        "event": "[Local][Backup to LOCAL] Data integrity check finished. 2.0 GB data checked this time.",
+        "level": "info",
+        "time": "2026/04/25 02:00:28",
+        "user": "SYSTEM"
+      },
+      {
+        "event": "[Local][Backup to LOCAL] Backup integrity check has started.",
+        "level": "info",
+        "time": "2026/04/25 02:30:13",
+        "user": "SYSTEM"
+      },
+      {
+        "event": "[backup] Version rotation completed from ID [host-01_1.hbk].",
+        "level": "info",
+        "time": "2026/04/25 01:27:55",
+        "user": "admin"
+      },
+      {
+        "event": "[Backup to LOCAL] Trigger version rotation.",
+        "level": "info",
+        "time": "2026/04/25 01:20:28",
+        "user": "SYSTEM"
+      },
+      {
+        "event": "[Local][Backup to LOCAL] Incomplete file backup. (The file is a special file.) [/volume1/docker/app/data/app.sock]",
+        "level": "warn",
+        "time": "2026/04/25 01:16:48",
+        "user": "SYSTEM"
+      },
+      {
+        "event": "[Local][Backup to LOCAL] Incomplete file backup. (The file is a special file.) [/volume1/docker/app/data/db.sock]",
+        "level": "warn",
+        "time": "2026/04/25 01:16:48",
+        "user": "SYSTEM"
+      },
+      {
+        "event": "[Local][Backup to LOCAL] Backup task started.",
+        "level": "info",
+        "time": "2026/04/25 01:00:05",
+        "user": "SYSTEM"
+      },
+      {
+        "event": "[Local][Backup to LOCAL] Failed to run backup task.",
+        "level": "err",
+        "time": "2026/04/24 21:50:01",
+        "user": "SYSTEM"
+      },
+      {
+        "event": "[Local][Backup to LOCAL] Exception occurred while backing up data.",
+        "level": "err",
+        "time": "2026/04/24 21:49:38",
+        "user": "SYSTEM"
+      },
+      {
+        "event": "Ready to delete version [2026-03-11 01:00:22] from task [Backup to LOCAL].",
+        "level": "info",
+        "time": "2026/04/24 20:00:00",
+        "user": "admin"
+      },
+      {
+        "event": "[Local][Backup to OLD] Backup task finished successfully.",
+        "level": "info",
+        "time": "2026/04/24 19:00:00",
+        "user": "SYSTEM"
+      }
+    ],
+    "total": 16
+  },
+  "success": true
+}

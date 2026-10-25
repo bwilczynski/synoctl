@@ -5,6 +5,7 @@ use clap_complete::engine::ArgValueCandidates;
 
 use crate::completion;
 
+use crate::model::backup_log::LogLevel;
 use crate::model::docker::{ContainerStatus, UpdateStatus};
 use crate::model::{BackupTaskResult, BackupTaskStatus, VolumeStatus};
 
@@ -137,6 +138,56 @@ pub enum BackupsCommand {
         #[arg(add = ArgValueCandidates::new(completion::backups))]
         id: String,
     },
+    /// Show the Hyper Backup log, like journalctl
+    Logs(BackupLogsArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct BackupLogsArgs {
+    /// Only this task's entries
+    #[arg(add = ArgValueCandidates::new(completion::backups))]
+    pub task: Option<String>,
+    /// Show the N most recent entries [default: 50; all with --since/--until; else 10 with --follow]
+    #[arg(short = 'n', long, value_name = "N")]
+    pub lines: Option<usize>,
+    /// Entries at or after WHEN: now, today, yesterday, -2h, "2h ago", YYYY-MM-DD [HH:MM[:SS]]
+    #[arg(short = 'S', long, value_name = "WHEN", allow_hyphen_values = true)]
+    pub since: Option<String>,
+    /// Entries at or before WHEN (same forms as --since)
+    #[arg(
+        short = 'U',
+        long,
+        value_name = "WHEN",
+        allow_hyphen_values = true,
+        conflicts_with = "follow"
+    )]
+    pub until: Option<String>,
+    /// Only entries of this level and above
+    #[arg(short = 'p', long, value_enum, value_name = "LEVEL")]
+    pub priority: Option<LogLevelArg>,
+    /// Newest entries first
+    #[arg(short = 'r', long, conflicts_with = "follow")]
+    pub reverse: bool,
+    /// Keep running and print new entries as they arrive
+    #[arg(short = 'f', long)]
+    pub follow: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum LogLevelArg {
+    Info,
+    Warning,
+    Error,
+}
+
+impl From<LogLevelArg> for LogLevel {
+    fn from(a: LogLevelArg) -> Self {
+        match a {
+            LogLevelArg::Info => Self::Info,
+            LogLevelArg::Warning => Self::Warning,
+            LogLevelArg::Error => Self::Error,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
