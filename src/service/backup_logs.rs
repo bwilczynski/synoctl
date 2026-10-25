@@ -38,7 +38,15 @@ impl BackupLogFilter {
             && self
                 .task
                 .as_ref()
-                .is_none_or(|id| e.task.as_ref().is_some_and(|t| &t.id == id))
+                .is_none_or(|id| e.task.as_ref().is_some_and(|t| same_task_id(&t.id, id)))
+    }
+}
+
+/// Task IDs are numbers, so `03` names task `3`, as in `backups get`.
+fn same_task_id(a: &str, b: &str) -> bool {
+    match (a.parse::<i64>(), b.parse::<i64>()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
     }
 }
 
@@ -404,12 +412,16 @@ impl Service {
             to: Some(f.until.unwrap_or(now).as_second()),
         };
         let mut entries = Vec::new();
+        let mut newest = i64::MIN;
+        // Stop once N entries match and the pages read cover the follow
+        // overlap, so `--follow`'s cursor knows every entry it will re-read.
         let fetched = self.fetch_log(query, |time, r| {
+            newest = newest.max(time.as_second());
             let (e, _) = tasks.entry(time, r);
             if f.matches(&e) {
                 entries.push(e);
             }
-            f.lines.is_some_and(|n| entries.len() >= n)
+            f.lines.is_some_and(|n| entries.len() >= n) && newest - time.as_second() > OVERLAP_SECS
         })?;
         order(&mut entries, f.lines, f.newest_first);
         Ok(BackupLogPage {
@@ -1023,5 +1035,50 @@ mod tests {
         push(&mut api, local(&at(100), "Future."));
         assert!(poll(&mut f, &api, later(5)).is_empty());
         assert_eq!(poll(&mut f, &api, later(105)).len(), 1);
+    }
+
+    #[test]
+    fn first_page_seeds_the_cursor_with_the_whole_overlap() {
+        let mut api = fixtures();
+        // More entries in one second than fit on a page, none of them new.
+        api.backup_log = (0..1100)
+            .map(|i| local("2026/04/25 11:00:00", &format!("Entry {i}.")))
+            .collect();
+        let filter = BackupLogFilter {
+            lines: Some(10),
+            ..Default::default()
+        };
+        let page = svc(api.clone()).backup_logs(&filter, now()).unwrap();
+        let (first, mut f) = page.follow(filter);
+        assert_eq!(first.len(), 10);
+        assert!(poll(&mut f, &api, later(5)).is_empty());
+    }
+
+    #[test]
+    fn task_id_with_leading_zero_matches() {
+        let three = logs(&BackupLogFilter {
+            task: Some("3".into()),
+            ..Default::default()
+        });
+        let padded = logs(&BackupLogFilter {
+            task: Some("03".into()),
+            ..Default::default()
+        });
+        assert!(!three.is_empty());
+        assert_eq!(padded, three);
+    }
+
+    #[test]
+    fn follow_with_padded_task_id_prints_new_entries() {
+        let mut api = fixtures();
+        let mut f = start(
+            &api,
+            BackupLogFilter {
+                task: Some("03".into()),
+                ..Default::default()
+            },
+        );
+        push(&mut api, local(&at(1), "New."));
+        assert_eq!(poll(&mut f, &api, later(5)).len(), 1);
     }
 }
